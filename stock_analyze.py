@@ -56,13 +56,19 @@ def get_client_key():
 
 def _fetch_from_goodinfo(stock_id, rpt_cat, days, client_key):
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://goodinfo.tw/'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+        'Referer': 'https://goodinfo.tw/tw/index.asp',
     }
     url = (f"https://goodinfo.tw/tw/StockFinDetail.asp"
            f"?RPT_CAT={rpt_cat}&STOCK_ID={stock_id}&REINIT={days:.10f}")
-    r = requests.get(url, headers=headers, cookies={'CLIENT_KEY': client_key}, timeout=20)
+    r = requests.get(url, headers=headers, cookies={'CLIENT_KEY': client_key}, timeout=15)
     r.encoding = 'utf-8'
+    if r.status_code != 200:
+        raise RuntimeError(f"Goodinfo 回應 HTTP {r.status_code}，可能封鎖此 IP")
+    if '請輸入驗證碼' in r.text or 'blocked' in r.text.lower():
+        raise RuntimeError("Goodinfo 要求驗證碼或封鎖此 IP，請稍後再試")
     return r.text
 
 def fetch_report(stock_id, rpt_cat, days, client_key, conn, use_cache=True):

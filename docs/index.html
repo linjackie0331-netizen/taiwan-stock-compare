@@ -443,7 +443,8 @@ async function go(){
     const r=await fetch(bkUrl+'/api/data',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({stocks:sids.slice(0,3),years:nY})
+      body:JSON.stringify({stocks:sids.slice(0,3),years:nY}),
+      signal:AbortSignal.timeout(90000)
     });
     if(!r.ok)throw new Error(`伺服器錯誤 HTTP ${r.status}`);
     const j=await r.json();
