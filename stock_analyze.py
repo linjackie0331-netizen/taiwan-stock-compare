@@ -315,6 +315,182 @@ def calc_survival_score(stock_data):
                 'verdict': '財務體質健全，近期財務危機風險低。從財務角度可放心評估。',
                 'signals': signals}
 
+# ─── 金融檢察官（財報法醫分析）───────────────────────────────
+# 根據公開財報數字，找常見的財報造假、掏空、洗錢跡象。
+# 方法論：改編自 Beneish M-Score + 台灣常見案例特徵。
+# 注意：這是量化警示，不是法律定論。有 flag 不代表一定有問題，無 flag 不代表絕對乾淨。
+
+def calc_forensic_score(stock_data):
+    years   = stock_data['years']
+    metrics = stock_data['metrics']
+    is_d    = stock_data['income_statement']
+    bs_d    = stock_data['balance_sheet']
+    cf_d    = stock_data['cash_flow']
+    flags   = []   # (severity, category, detail)
+    score   = 0    # 累計可疑分數
+
+    # ── 1. 盈餘品質（OCF/NI ratio）────────────────────────
+    # 正常公司 OCF ≥ NI（折舊等非現金費用會讓 OCF 更高）
+    # OCF 持續 < NI 80% = 帳面利潤可能虛增：提前認列收入、延後認列費用
+    ocf_ni_pairs = [(yr, metrics[yr].get('op_cf'), metrics[yr].get('net_income'))
+                    for yr in years
+                    if metrics[yr].get('op_cf') is not None and metrics[yr].get('net_income')]
+    low_q = [(yr, ocf/ni) for yr, ocf, ni in ocf_ni_pairs if ni > 0 and ocf/ni < 0.8]
+    if len(low_q) >= 3:
+        avg = sum(r for _, r in low_q) / len(low_q)
+        score += 3
+        flags.append(('critical', '盈餘品質異常',
+            f'連續 {len(low_q)} 年 OCF/淨利 < 80%（平均 {avg:.0%}）。'
+            '淨利遠超現金流是財報操縱最典型特徵，常見手法：提前認列收入、'
+            '費用遞延至下一期、應收帳款虛增。'))
+    elif len(low_q) >= 2:
+        score += 1
+        flags.append(('warning', '盈餘品質偏低',
+            f'近 {len(low_q)} 年 OCF 未達淨利 80%，獲利含金量不足，需追蹤趨勢。'))
+    elif ocf_ni_pairs:
+        avg = sum(ocf/ni for _, ocf, ni in ocf_ni_pairs if ni > 0) / len(ocf_ni_pairs)
+        if avg >= 1.0:
+            flags.append(('ok', '盈餘品質', f'OCF 平均為淨利的 {avg:.0%}，現金流品質良好。'))
+
+    # ── 2. 有盈無現（Profitable but cash-negative）────────
+    # 帳面賺錢但自由現金流持續為負 = 利潤可能是帳面數字
+    pnc = [yr for yr in years
+           if (metrics[yr].get('net_income') or 0) > 0
+           and (metrics[yr].get('fcf') or 0) < 0]
+    if len(pnc) >= 3:
+        score += 3
+        flags.append(('critical', '有盈無現（掏空/造假警示）',
+            f'連續 {len(pnc)} 年帳面獲利但自由現金流為負（{", ".join(pnc)}）。'
+            '這是台灣掏空案最常見的財報特徵之一：數字好看但公司沒有真實現金進帳。'))
+    elif len(pnc) >= 2:
+        score += 1
+        flags.append(('warning', '有盈無現',
+            f'{len(pnc)} 年出現帳面盈利但 FCF 為負，需確認資本支出是否合理。'))
+
+    # ── 3. 資產膨脹 vs 營收（虛增資產警示）───────────────
+    # 資產成長速度遠超營收 → 可能用關聯交易灌水資產、或購入無效資產轉移現金
+    ta_vals  = [(yr, metrics[yr].get('total_assets')) for yr in years if metrics[yr].get('total_assets')]
+    rev_vals = [(yr, metrics[yr].get('revenue'))      for yr in years if metrics[yr].get('revenue')]
+    if len(ta_vals) >= 2 and len(rev_vals) >= 2:
+        n = int(ta_vals[0][0]) - int(ta_vals[-1][0])
+        if n > 0:
+            ta_cagr  = calc_cagr(ta_vals[-1][1],  ta_vals[0][1],  n)
+            rev_cagr = calc_cagr(rev_vals[-1][1], rev_vals[0][1], n)
+            if ta_cagr is not None and rev_cagr is not None:
+                diff = ta_cagr - rev_cagr
+                if diff > 20:
+                    score += 3
+                    flags.append(('critical', '資產異常膨脹',
+                        f'資產年均成長 {ta_cagr:.1f}%，遠超營收成長 {rev_cagr:.1f}%（差 {diff:.1f}ppt）。'
+                        '常見手法：用高價向關係人購入資產、虛增存貨或預付款項、'
+                        '投資空殼子公司將現金轉出。'))
+                elif diff > 10:
+                    score += 1
+                    flags.append(('warning', '資產成長偏快',
+                        f'資產（{ta_cagr:.1f}%/yr）略超營收（{rev_cagr:.1f}%/yr），建議了解資產用途。'))
+                else:
+                    flags.append(('ok', '資產與營收成長平衡', f'資產與營收成長比例合理。'))
+
+    # ── 4. 應收帳款異常（Channel Stuffing）────────────────
+    # AR 成長速度遠超營收 → 可能塞貨給通路（月底衝業績）或虛開發票認列收入
+    ar_k = _find(bs_d, '應收帳款') or _find(bs_d, '應收票據及應收帳款') or _find(bs_d, '應收')
+    if ar_k:
+        ar_vals = [(yr, bs_d[ar_k].get(yr)) for yr in years if bs_d[ar_k].get(yr)]
+        if len(ar_vals) >= 2 and len(rev_vals) >= 2:
+            n = int(ar_vals[0][0]) - int(ar_vals[-1][0])
+            if n > 0:
+                ar_cagr = calc_cagr(ar_vals[-1][1], ar_vals[0][1], n)
+                rev_cagr2 = calc_cagr(rev_vals[-1][1], rev_vals[0][1], n)
+                if ar_cagr is not None and rev_cagr2 is not None:
+                    diff = ar_cagr - rev_cagr2
+                    if diff > 25:
+                        score += 3
+                        flags.append(('critical', '應收帳款暴增（Channel Stuffing 警示）',
+                            f'應收帳款年均成長 {ar_cagr:.1f}%，遠超營收成長 {rev_cagr2:.1f}%（差 {diff:.1f}ppt）。'
+                            '典型操縱手法：月底大量出貨給關聯通路衝業績，但貨品最終退回；'
+                            '或對空殼客戶開立假發票認列收入。'))
+                    elif diff > 15:
+                        score += 1
+                        flags.append(('warning', '應收帳款成長偏快',
+                            f'AR 成長（{ar_cagr:.1f}%）超過營收（{rev_cagr2:.1f}%），需確認客戶信用狀況。'))
+                    else:
+                        flags.append(('ok', '應收帳款', '應收帳款與營收成長比例正常。'))
+
+    # ── 5. 毛利率突然跳升（費用資本化 / 成本操縱）─────────
+    # 正常公司毛利率改善緩慢；單年暴增往往代表費用被錯誤資本化或成本被推遲認列
+    gm_vals = [(yr, metrics[yr].get('gross_margin')) for yr in years if metrics[yr].get('gross_margin') is not None]
+    if len(gm_vals) >= 3:
+        jumps = [(gm_vals[i][0], gm_vals[i][1] - gm_vals[i+1][1]) for i in range(len(gm_vals)-1)]
+        worst = max(jumps, key=lambda x: x[1])
+        if worst[1] > 10:
+            score += 2
+            flags.append(('critical', f'毛利率單年暴增（{worst[0]}）',
+                f'毛利率在 {worst[0]} 年單年跳升 {worst[1]:.1f}ppt，異常大幅改善。'
+                '常見原因：期末把應列費用轉入資本支出（WorldCom 手法）、'
+                '壓低對供應商的成本認列、或透過關聯公司交易墊高售價。'))
+        elif worst[1] > 6:
+            score += 1
+            flags.append(('warning', f'毛利率顯著提升（{worst[0]}）',
+                f'毛利率在 {worst[0]} 年提升 {worst[1]:.1f}ppt，建議了解是否有業務結構重大改變。'))
+
+    # ── 6. 負債突然暴增（隱藏負債被迫揭露）───────────────
+    tl_vals = [(yr, metrics[yr].get('total_liabilities')) for yr in years if metrics[yr].get('total_liabilities')]
+    if len(tl_vals) >= 2:
+        for i in range(len(tl_vals)-1):
+            yr_new, v_new = tl_vals[i]
+            yr_old, v_old = tl_vals[i+1]
+            if v_old and v_old > 0:
+                chg = (v_new - v_old) / v_old * 100
+                if chg > 50:
+                    score += 2
+                    flags.append(('critical', f'負債單年暴增 {chg:.0f}%（{yr_old}→{yr_new}）',
+                        f'總負債從 {fmt(v_old,0)} 億暴增至 {fmt(v_new,0)} 億（+{chg:.0f}%）。'
+                        '可能是表外負債被迫揭露、擔保責任轉為正式負債、'
+                        '或以大量借款掩護現金轉出。'))
+                    break
+                elif chg > 30:
+                    score += 1
+                    flags.append(('warning', f'負債快速增加（{yr_old}→{yr_new}）',
+                        f'總負債增加 {chg:.0f}%，建議確認資金用途是否為正常業務擴張。'))
+                    break
+
+    # ── 7. 股東權益流失（掏空指標）────────────────────────
+    # 累計淨利應會反映在股東權益增加；若累計利潤高但權益反而縮水，代表大量現金被轉出
+    eq_vals = [(yr, metrics[yr].get('equity')) for yr in years if metrics[yr].get('equity')]
+    if len(eq_vals) >= 3:
+        eq_new, eq_old = eq_vals[0][1], eq_vals[-1][1]
+        total_ni = sum(metrics[yr].get('net_income') or 0 for yr in years)
+        if eq_old and total_ni > 0 and eq_old > 0:
+            expected = eq_old + total_ni
+            gap = expected - eq_new
+            gap_pct = gap / eq_old * 100
+            if gap_pct > 60 and gap > 0:
+                score += 3
+                flags.append(('critical', '股東權益異常流失（疑似掏空）',
+                    f'近 {len(years)} 年累計淨利約 {fmt(total_ni,0)} 億，'
+                    f'但股東權益僅從 {fmt(eq_old,0)} 億變為 {fmt(eq_new,0)} 億（應有 {fmt(expected,0)} 億），'
+                    f'差距 {fmt(gap,0)} 億（{gap_pct:.0f}%）無法以股利完全解釋。'
+                    '經典掏空手法：以高額股利為名分配現金後再增資圈錢、'
+                    '或透過關聯方交易將資金轉至私人帳戶。'))
+            elif gap_pct > 30 and gap > 0:
+                score += 1
+                flags.append(('warning', '股東權益成長低於預期',
+                    f'累計獲利與權益增加差距 {fmt(gap,0)} 億（{gap_pct:.0f}%），'
+                    '若非高股利政策，需了解資金去向。'))
+
+    # ── 最終裁定 ──────────────────────────────────────────
+    if score >= 6:
+        return {'level': 'critical', 'label': '高度可疑', 'color': '#c53030', 'score': score,
+                'summary': f'共發現 {score} 點財報異常訊號，多項指標同時出現是造假的強力警示。強烈建議查閱公開資訊觀測站重大訊息、近 3 年年報附註，以及是否有大股東異常減持。',
+                'flags': flags}
+    if score >= 3:
+        return {'level': 'warning', 'label': '部分疑點', 'color': '#c05621', 'score': score,
+                'summary': f'發現 {score} 點財務異常，單獨看可能有合理解釋，但組合出現需提高警惕。建議進一步查閱年報附註與董監持股變化。',
+                'flags': flags}
+    return     {'level': 'clean',   'label': '未見明顯異常', 'color': '#276749', 'score': score,
+                'summary': '主要財報指標未出現典型造假特徵。但量化模型有盲點（如關聯方交易、董事借款等），仍建議閱讀年報附註。',
+                'flags': flags}
+
 # ─── 主要抓取流程 ──────────────────────────────────────────
 
 def fetch_stock(stock_id, max_years=5, use_cache=True):
@@ -419,7 +595,28 @@ body { font-family: 'Microsoft JhengHei','Noto Sans TC',sans-serif; background: 
 .signal-ok     { background: #f0fff4; color: #276749; }
 .signal-warn   { background: #fffbeb; color: #744210; }
 .signal-danger { background: #fff5f5; color: #9b2c2c; }
-@media (max-width: 768px) { .charts-grid { grid-template-columns: 1fr; } .survival-grid { grid-template-columns: 1fr; } }
+@media (max-width: 768px) { .charts-grid { grid-template-columns: 1fr; } .survival-grid { grid-template-columns: 1fr; } .forensic-grid { grid-template-columns: 1fr; } }
+/* 金融檢察官 tab */
+.forensic-verdict { border-radius: 10px; padding: 18px 22px; margin-bottom: 20px; border-left: 6px solid; }
+.forensic-verdict.critical { background:#fff5f5; border-color:#c53030; }
+.forensic-verdict.warning  { background:#fffaf0; border-color:#c05621; }
+.forensic-verdict.clean    { background:#f0fff4; border-color:#276749; }
+.forensic-verdict-label { font-size:1rem; font-weight:800; margin-bottom:6px; }
+.forensic-verdict-text  { font-size:0.86rem; line-height:1.6; }
+.forensic-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:20px; margin-bottom:20px; }
+.forensic-card { background:white; border-radius:12px; overflow:hidden; box-shadow:0 2px 10px rgba(0,0,0,0.08); }
+.forensic-card-header { padding:14px 20px; color:white; font-weight:700; font-size:1rem; display:flex; align-items:center; gap:10px; }
+.forensic-findings { padding:16px 20px; display:flex; flex-direction:column; gap:10px; }
+.finding { border-radius:8px; padding:12px 14px; }
+.finding.critical { background:#fff5f5; border-left:4px solid #c53030; }
+.finding.warning  { background:#fffaf0; border-left:4px solid #c05621; }
+.finding.ok       { background:#f0fff4; border-left:4px solid #276749; }
+.finding-category { font-size:0.78rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:5px; }
+.finding.critical .finding-category { color:#c53030; }
+.finding.warning  .finding-category { color:#c05621; }
+.finding.ok       .finding-category { color:#276749; }
+.finding-detail { font-size:0.82rem; line-height:1.6; color:#4a5568; }
+.finding.critical .finding-detail { color:#742a2a; }
 """
 
 # ─── HTML 生成 ─────────────────────────────────────────────
@@ -541,6 +738,31 @@ def build_comparison_html(all_stocks):
   <div class="signal-list">{sigs}</div>
 </div>"""
 
+    # Forensic tab — 金融檢察官
+    F_ICONS = {'critical': '🔴', 'warning': '⚠️', 'ok': '✅'}
+    forensic_verdicts = ''
+    forensic_cards    = ''
+    for sid in stock_ids:
+        fscore = calc_forensic_score(all_stocks[sid])
+        color  = color_map[sid]
+        forensic_verdicts += f"""<div class="forensic-verdict {fscore['level']}">
+  <div class="forensic-verdict-label" style="color:{fscore['color']}">
+    ⚖️ {sid} — 裁定：{fscore['label']}（可疑分 {fscore['score']} 點）
+  </div>
+  <div class="forensic-verdict-text">{fscore['summary']}</div>
+</div>"""
+        findings_html = ''.join(
+            f'<div class="finding {sev}"><div class="finding-category">{F_ICONS[sev]} {cat}</div>'
+            f'<div class="finding-detail">{detail}</div></div>'
+            for sev, cat, detail in fscore['flags']
+        )
+        forensic_cards += f"""<div class="forensic-card">
+  <div class="forensic-card-header" style="background:{color}">
+    🔍 {sid} 財報偵查報告
+  </div>
+  <div class="forensic-findings">{findings_html}</div>
+</div>"""
+
     title   = ' vs '.join(stock_ids)
     fetched = date.today().isoformat()
     labels  = str(all_years).replace("'", '"')
@@ -565,6 +787,7 @@ def build_comparison_html(all_stocks):
   <div class="tab" onclick="switchTab('finance',this)">🏦 財務健全度</div>
   <div class="tab" onclick="switchTab('dupont',this)">🔬 進階分析</div>
   <div class="tab" onclick="switchTab('survival',this)">🛡️ 存活評估</div>
+  <div class="tab" onclick="switchTab('forensic',this)">⚖️ 金融檢察官</div>
 </div>
 
 <div id="overview" class="tab-content active">
@@ -615,6 +838,24 @@ def build_comparison_html(all_stocks):
   </ul></div>
   <div class="survival-grid">{survival_cards}</div>
   <p style="font-size:0.75rem;color:#718096;">⚠️ 本評估基於公開財報，不構成投資或求職建議。建議搭配最新季報及面試資訊綜合判斷。</p>
+</div>
+<div id="forensic" class="tab-content">
+  <div class="insight-box"><h3>⚖️ 金融檢察官在找什麼？</h3><ul>
+    <li>盈餘品質：淨利 vs 現金流是否吻合？（不吻合 = 可能帳面造假）</li>
+    <li>有盈無現：帳面賺錢但持續無現金 = 台灣掏空案最典型特徵</li>
+    <li>資產膨脹：資產成長遠超營收 = 可能用關聯交易虛增資產</li>
+    <li>應收帳款暴增：塞貨給通路或虛開發票（Channel Stuffing）</li>
+    <li>毛利率突跳：費用資本化、成本操縱</li>
+    <li>股東權益流失：利潤無法解釋的消失 = 疑似掏空</li>
+  </ul></div>
+  <div class="section-title">各股裁定摘要</div>
+  {forensic_verdicts}
+  <div class="section-title">詳細偵查報告</div>
+  <div class="forensic-grid">{forensic_cards}</div>
+  <p style="font-size:0.75rem;color:#718096;margin-top:12px;">
+    ⚠️ 本分析為量化財報異常偵測，改編自 Beneish M-Score 方法論。有 flag 不等於定罪，無 flag 不等於清白。
+    確認可疑訊號請查閱：<strong>公開資訊觀測站 → 重大訊息 / 財務報告 / 關係人交易</strong>。
+  </p>
 </div>
 
 <script>
@@ -863,6 +1104,72 @@ def build_excel(all_stocks):
         ws3.column_dimensions['A'].width = 24
         for i in range(2, len(years)+2):
             ws3.column_dimensions[get_column_letter(i)].width = 12
+
+    # ══ Sheet 4: 金融檢察官 ════════════════════════════════
+    ws4 = wb.create_sheet("金融檢察官")
+    ws4.cell(1,1,"⚖️ 金融檢察官 — 財報異常偵測").font = Font(bold=True, size=13, color="C53030")
+    ws4.merge_cells(f'A1:{get_column_letter(len(sids)+1)}1')
+
+    hdr(ws4, 2, 1, "偵查項目")
+    for i, sid in enumerate(sids, 2):
+        hdr(ws4, 2, i, sid)
+
+    fscores  = {sid: calc_forensic_score(all_stocks[sid]) for sid in sids}
+    F_FILLS  = {'critical': PatternFill("solid", fgColor="FED7D7"),
+                'warning':  PatternFill("solid", fgColor="FEEBC8"),
+                'clean':    PatternFill("solid", fgColor="C6F6D5")}
+    F_FONTS  = {'critical': '9B2C2C', 'warning': '744210', 'clean': '276749'}
+
+    # 裁定列
+    ws4.cell(3, 1, "整體裁定").font = bold
+    for i, sid in enumerate(sids, 2):
+        fs = fscores[sid]
+        c  = ws4.cell(3, i, f"{fs['label']}（{fs['score']} 點）")
+        c.fill = F_FILLS[fs['level']]; c.font = Font(bold=True, color=F_FONTS[fs['level']]); c.alignment = center
+
+    # 裁定摘要
+    ws4.row_dimensions[4].height = 60
+    ws4.cell(4, 1, "裁定摘要").font = bold
+    for i, sid in enumerate(sids, 2):
+        c = ws4.cell(4, i, fscores[sid]['summary'])
+        c.alignment = Alignment(wrap_text=True, vertical='top')
+
+    # 各項偵查結果
+    r = 6
+    c_hdr = ws4.cell(r, 1, "── 詳細偵查項目 ──")
+    c_hdr.font = Font(bold=True, color="C53030"); c_hdr.fill = PatternFill("solid", fgColor="FED7D7")
+    ws4.merge_cells(f'A{r}:{get_column_letter(len(sids)+1)}{r}')
+    r += 1
+
+    # Collect all unique categories across all stocks
+    all_cats = []
+    seen = set()
+    for sid in sids:
+        for sev, cat, detail in fscores[sid]['flags']:
+            if cat not in seen:
+                all_cats.append(cat)
+                seen.add(cat)
+
+    for cat in all_cats:
+        ws4.cell(r, 1, cat).font = Font(bold=True, size=9)
+        ws4.row_dimensions[r].height = 45
+        for i, sid in enumerate(sids, 2):
+            flag = next(((s,d) for s,c,d in fscores[sid]['flags'] if c==cat), None)
+            if flag:
+                sev, detail = flag
+                icon = {'critical':'🔴','warning':'⚠️','ok':'✅'}[sev]
+                c = ws4.cell(r, i, f"{icon} {detail}")
+                c.fill = F_FILLS.get(sev, PatternFill("solid", fgColor="F7FAFC"))
+                c.font = Font(color=F_FONTS.get(sev, '2d3748'), size=9)
+                c.alignment = Alignment(wrap_text=True, vertical='top')
+        r += 1
+
+    ws4.cell(r+1, 1, "⚠️ 量化偵測有盲點，請以公開資訊觀測站重大訊息、關係人交易揭露、董監持股為輔助查證依據。").font = Font(italic=True, color="718096", size=9)
+    ws4.merge_cells(f'A{r+1}:{get_column_letter(len(sids)+1)}{r+1}')
+
+    ws4.column_dimensions['A'].width = 24
+    for i in range(2, len(sids)+2):
+        ws4.column_dimensions[get_column_letter(i)].width = 40
 
     out = OUTPUT_DIR / f"{'_vs_'.join(sids)}_analysis.xlsx"
     wb.save(out)
