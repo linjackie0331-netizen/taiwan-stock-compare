@@ -25,6 +25,12 @@ def index():
     return send_from_directory(TMPL, 'index.html')
 
 
+@app.route('/api/ping')
+def ping():
+    token = os.environ.get('FINMIND_TOKEN', '')
+    return jsonify({'ok': True, 'token_set': bool(token), 'token_prefix': token[:10] if token else ''})
+
+
 @app.route('/api/data', methods=['POST', 'OPTIONS'])
 def data():
     """輕量端點：只回傳 metrics（前端自行計算存活評估 & 財務偵測）"""
