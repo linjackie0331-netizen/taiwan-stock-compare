@@ -478,18 +478,55 @@ def calc_forensic_score(stock_data):
                     f'累計獲利與權益增加差距 {fmt(gap,0)} 億（{gap_pct:.0f}%），'
                     '若非高股利政策，需了解資金去向。'))
 
-    # ── 最終裁定 ──────────────────────────────────────────
+    # ── 最終裁定：生成敘事式偵查報告 ──────────────────────
+    yr_range = f'{years[-1]}－{years[0]}' if len(years) >= 2 else (years[0] if years else '未知')
+    n_yrs    = len(years)
+    critical_cats = [cat for sev, cat, _ in flags if sev == 'critical']
+    warning_cats  = [cat for sev, cat, _ in flags if sev == 'warning']
+
     if score >= 6:
+        critical_list = '、'.join(f'「{c}」' for c in critical_cats) if critical_cats else '多項指標'
+        narrative = (
+            f'本案審查期間為 {yr_range} 年（共 {n_yrs} 年財報）。'
+            f'偵查結果顯示，在此期間共累積 {score} 點異常訊號，屬高度可疑等級。\n\n'
+            f'主要疑點集中於 {critical_list}。'
+            f'多個指標同時出現異常，是財報造假的強力組合警示——'
+            f'單一指標可能有合理解釋，但三項以上同時觸發的機率極低。\n\n'
+            f'台灣過去掏空案（博達、力霸、康友-KY 等）幾乎都呈現「帳面獲利亮眼、現金流卻持續失血、'
+            f'資產快速膨脹」的三連特徵，本案數字模式與此高度吻合。\n\n'
+            f'查核建議：公開資訊觀測站搜尋「重大訊息」、「關係人交易揭露」；'
+            f'查閱近三年年報附註中「應收帳款帳齡分析」；確認董監大股東近期持股變化。'
+        )
         return {'level': 'critical', 'label': '高度可疑', 'color': '#c53030', 'score': score,
-                'summary': f'共發現 {score} 點財報異常訊號，多項指標同時出現是造假的強力警示。強烈建議查閱公開資訊觀測站重大訊息、近 3 年年報附註，以及是否有大股東異常減持。',
-                'flags': flags}
+                'summary': f'在 {yr_range} 年間發現 {score} 點財報異常，{critical_list} 等多項指標同時觸發，為財報造假的強力警示組合。',
+                'narrative': narrative, 'flags': flags}
+
     if score >= 3:
+        warning_list = '、'.join(f'「{c}」' for c in (critical_cats + warning_cats)[:3]) if (critical_cats or warning_cats) else '部分指標'
+        narrative = (
+            f'本案審查期間為 {yr_range} 年（共 {n_yrs} 年財報）。'
+            f'偵查結果發現 {score} 點異常訊號，屬部分疑點等級，尚未達到高度可疑標準。\n\n'
+            f'需關注的面向包括 {warning_list}。'
+            f'這些指標單獨看或許有業務上的合理解釋（例如快速擴張、業務轉型），'
+            f'但若搭配管理層更換、大股東減持、或異常關聯交易，警示程度將大幅提升。\n\n'
+            f'查核建議：閱讀最近一次年報附註，重點查看「重要會計估計及判斷」與「關係人交易」章節；'
+            f'追蹤最新季報確認趨勢是否持續惡化。'
+        )
         return {'level': 'warning', 'label': '部分疑點', 'color': '#c05621', 'score': score,
-                'summary': f'發現 {score} 點財務異常，單獨看可能有合理解釋，但組合出現需提高警惕。建議進一步查閱年報附註與董監持股變化。',
-                'flags': flags}
-    return     {'level': 'clean',   'label': '未見明顯異常', 'color': '#276749', 'score': score,
-                'summary': '主要財報指標未出現典型造假特徵。但量化模型有盲點（如關聯方交易、董事借款等），仍建議閱讀年報附註。',
-                'flags': flags}
+                'summary': f'在 {yr_range} 年間發現 {score} 點財務異常，部分指標需進一步確認，建議查閱年報附註。',
+                'narrative': narrative, 'flags': flags}
+
+    narrative = (
+        f'本案審查期間為 {yr_range} 年（共 {n_yrs} 年財報）。'
+        f'主要財報指標未出現典型造假特徵：盈餘品質正常（OCF 與淨利相符）、'
+        f'資產與營收成長比例合理、應收帳款無異常膨脹。\n\n'
+        f'量化模型的局限性：本分析無法偵測關聯方交易的實質性、'
+        f'董事借款、或業外損益的真實性，這些需要閱讀年報附註才能判斷。\n\n'
+        f'結論：從公開財報數字來看，財務結構相對透明健康，是求職財務盡職調查的加分項目。'
+    )
+    return {'level': 'clean', 'label': '未見明顯異常', 'color': '#276749', 'score': score,
+            'summary': f'在 {yr_range} 年間主要財報指標正常，未出現典型財報造假特徵。',
+            'narrative': narrative, 'flags': flags}
 
 # ─── 主要抓取流程 ──────────────────────────────────────────
 

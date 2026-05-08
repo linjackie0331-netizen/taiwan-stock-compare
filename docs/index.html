@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>財務比較: 健康科技A（示範：財務健全） vs 可疑電子B（示範：多項警示）</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Microsoft JhengHei','Noto Sans TC',sans-serif; background: #f0f4f8; color: #2d3748; }
+.header { background: linear-gradient(135deg,#1a365d,#2b6cb0,#3182ce); color: white; padding: 20px 32px; }
+.header h1 { font-size: 1.4rem; margin-bottom: 4px; }
+.header .sub { font-size: 0.82rem; opacity: 0.85; }
+.tabs { display: flex; background: white; border-bottom: 2px solid #e2e8f0; padding: 0 24px; overflow-x: auto; }
+.tab { padding: 12px 20px; cursor: pointer; font-size: 0.9rem; font-weight: 600; color: #718096;
+  border-bottom: 3px solid transparent; margin-bottom: -2px; white-space: nowrap; }
+.tab.active { color: #2b6cb0; border-bottom-color: #2b6cb0; }
+.tab-content { display: none; padding: 24px 32px; }
+.tab-content.active { display: block; }
+.section-title { font-size: 1rem; font-weight: 700; color: #2d3748; margin: 20px 0 12px;
+  padding-left: 10px; border-left: 4px solid #3182ce; }
+.stock-cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 16px; margin-bottom: 20px; }
+.stock-summary-card { background: white; border-radius: 12px; padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07); border-top: 4px solid #3182ce; }
+.stock-summary-card h2 { font-size: 1.1rem; margin-bottom: 12px; }
+.metric-row { display: flex; justify-content: space-between; padding: 4px 0;
+  border-bottom: 1px solid #f0f4f8; font-size: 0.84rem; }
+.metric-row:last-child { border-bottom: none; }
+.metric-name { color: #718096; }
+.metric-val { font-weight: 600; }
+.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 20px; }
+.chart-card { background: white; border-radius: 10px; padding: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+.chart-title { font-size: 0.88rem; font-weight: 700; color: #4a5568; margin-bottom: 12px; }
+.chart-container { position: relative; height: 220px; }
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; background: white;
+  border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+.cmp-table th { background: #2b6cb0; color: white; padding: 10px 14px; text-align: center; }
+.cmp-table th:first-child { text-align: left; }
+.cmp-table td { padding: 9px 14px; text-align: right; border-bottom: 1px solid #e2e8f0; }
+.cmp-table td:first-child { text-align: left; font-weight: 600; color: #4a5568; background: #f7fafc; }
+.cmp-table tr:last-child td { border-bottom: none; }
+.cmp-table .cat-row td { background: #ebf8ff; color: #2b6cb0; font-weight: 700; font-size: 0.82rem; }
+.best  { background: #f0fff4 !important; color: #276749 !important; font-weight: 700; }
+.worst { background: #fff5f5 !important; color: #9b2c2c !important; }
+.insight-box { background: linear-gradient(135deg,#ebf8ff,#e6fffa); border: 1px solid #bee3f8;
+  border-radius: 10px; padding: 16px 20px; margin-bottom: 18px; }
+.insight-box h3 { color: #2b6cb0; font-size: 0.88rem; margin-bottom: 8px; }
+.insight-box li { font-size: 0.84rem; color: #4a5568; padding: 2px 0 2px 16px; position: relative; list-style: none; }
+.insight-box li::before { content: '▸'; position: absolute; left: 0; color: #3182ce; }
+.survival-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); gap: 20px; margin-bottom: 24px; }
+.survival-card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+.survival-header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.survival-sid { font-size: 1.2rem; font-weight: 700; }
+.risk-badge { padding: 4px 14px; border-radius: 99px; color: white; font-size: 0.78rem; font-weight: 700; }
+.risk-meter { height: 6px; border-radius: 99px; background: #e2e8f0; margin: 0 0 14px; overflow: hidden; }
+.risk-meter-fill { height: 100%; border-radius: 99px; }
+.verdict-text { font-size: 0.87rem; color: #4a5568; line-height: 1.5; padding: 12px;
+  background: #f7fafc; border-radius: 8px; margin-bottom: 14px; }
+.signal-list { display: flex; flex-direction: column; gap: 6px; }
+.signal-item { display: flex; align-items: flex-start; gap: 8px; font-size: 0.83rem; padding: 6px 8px; border-radius: 6px; }
+.signal-ok     { background: #f0fff4; color: #276749; }
+.signal-warn   { background: #fffbeb; color: #744210; }
+.signal-danger { background: #fff5f5; color: #9b2c2c; }
+@media (max-width: 768px) { .charts-grid { grid-template-columns: 1fr; } .survival-grid { grid-template-columns: 1fr; } .forensic-grid { grid-template-columns: 1fr; } }
+/* 金融檢察官 tab */
+.forensic-verdict { border-radius: 10px; padding: 18px 22px; margin-bottom: 20px; border-left: 6px solid; }
+.forensic-verdict.critical { background:#fff5f5; border-color:#c53030; }
+.forensic-verdict.warning  { background:#fffaf0; border-color:#c05621; }
+.forensic-verdict.clean    { background:#f0fff4; border-color:#276749; }
+.forensic-verdict-label { font-size:1rem; font-weight:800; margin-bottom:6px; }
+.forensic-verdict-text  { font-size:0.86rem; line-height:1.6; }
+.forensic-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:20px; margin-bottom:20px; }
+.forensic-card { background:white; border-radius:12px; overflow:hidden; box-shadow:0 2px 10px rgba(0,0,0,0.08); }
+.forensic-card-header { padding:14px 20px; color:white; font-weight:700; font-size:1rem; display:flex; align-items:center; gap:10px; }
+.forensic-findings { padding:16px 20px; display:flex; flex-direction:column; gap:10px; }
+.finding { border-radius:8px; padding:12px 14px; }
+.finding.critical { background:#fff5f5; border-left:4px solid #c53030; }
+.finding.warning  { background:#fffaf0; border-left:4px solid #c05621; }
+.finding.ok       { background:#f0fff4; border-left:4px solid #276749; }
+.finding-category { font-size:0.78rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:5px; }
+.finding.critical .finding-category { color:#c53030; }
+.finding.warning  .finding-category { color:#c05621; }
+.finding.ok       .finding-category { color:#276749; }
+.finding-detail { font-size:0.82rem; line-height:1.6; color:#4a5568; }
+.finding.critical .finding-detail { color:#742a2a; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>📊 台灣股票財務比較分析</h1>
+  <div class="sub">分析標的：健康科技A（示範：財務健全） vs 可疑電子B（示範：多項警示）｜資料來源：Goodinfo.tw｜分析日期：2026-05-08｜金額單位：億元</div>
+</div>
+<div class="tabs">
+  <div class="tab active"   onclick="switchTab('overview',this)">🏠 概覽</div>
+  <div class="tab" onclick="switchTab('ops',this)">📈 營運</div>
+  <div class="tab" onclick="switchTab('profit',this)">💰 獲利</div>
+  <div class="tab" onclick="switchTab('finance',this)">🏦 財務健全度</div>
+  <div class="tab" onclick="switchTab('dupont',this)">🔬 進階分析</div>
+  <div class="tab" onclick="switchTab('survival',this)">🛡️ 存活評估</div>
+  <div class="tab" onclick="switchTab('forensic',this)">⚖️ 金融檢察官</div>
+</div>
+
+<div id="overview" class="tab-content active">
+  <div class="section-title">各股 2024 年度快速摘要</div>
+  <div class="stock-cards"><div class="stock-summary-card" style="border-top-color:#3182ce"><h2 style="color:#3182ce">🏢 健康科技A（示範：財務健全）</h2><div class="metric-row"><span class="metric-name">營業收入</span><span class="metric-val">12,588.2 億</span></div><div class="metric-row"><span class="metric-name">毛利率</span><span class="metric-val">52.0%</span></div><div class="metric-row"><span class="metric-name">稅後淨利率</span><span class="metric-val">45.0%</span></div><div class="metric-row"><span class="metric-name">EPS (元)</span><span class="metric-val">7.08</span></div><div class="metric-row"><span class="metric-name">ROE</span><span class="metric-val">29.4%</span></div><div class="metric-row"><span class="metric-name">負債比率</span><span class="metric-val">27.0%</span></div></div><div class="stock-summary-card" style="border-top-color:#38a169"><h2 style="color:#38a169">🏢 可疑電子B（示範：多項警示）</h2><div class="metric-row"><span class="metric-name">營業收入</span><span class="metric-val">1,458.6 億</span></div><div class="metric-row"><span class="metric-name">毛利率</span><span class="metric-val">38.0%</span></div><div class="metric-row"><span class="metric-name">稅後淨利率</span><span class="metric-val">32.0%</span></div><div class="metric-row"><span class="metric-name">EPS (元)</span><span class="metric-val">2.33</span></div><div class="metric-row"><span class="metric-name">ROE</span><span class="metric-val">8.0%</span></div><div class="metric-row"><span class="metric-name">負債比率</span><span class="metric-val">45.0%</span></div></div></div>
+  <div class="section-title">全期間完整比較表</div>
+  <table class="cmp-table">
+<thead><tr><th>指標 / 年度</th><th style="color:#3182ce;background:#1a365d;">健康科技A（示範：財務健全）</th><th style="color:#38a169;background:#1a365d;">可疑電子B（示範：多項警示）</th></tr></thead><tbody>
+<tr class="cat-row"><td colspan="3">📅 營業收入 (億元)</td></tr><tr><td style="padding-left:24px;color:#718096;">2024</td><td class="best">12,588.2</td><td class="worst">1,458.6</td></tr><tr><td style="padding-left:24px;color:#718096;">2023</td><td class="best">11,239.4</td><td class="worst">1,389.2</td></tr><tr><td style="padding-left:24px;color:#718096;">2022</td><td class="best">10,035.2</td><td class="worst">1,323.0</td></tr><tr><td style="padding-left:24px;color:#718096;">2021</td><td class="best">8,960.0</td><td class="worst">1,260.0</td></tr><tr><td style="padding-left:24px;color:#718096;">2020</td><td class="best">8,000.0</td><td class="worst">1,200.0</td></tr>
+<tr class="cat-row"><td colspan="3">📅 毛利率 (%)</td></tr><tr><td style="padding-left:24px;color:#718096;">2024</td><td class="best">52.0%</td><td class="worst">38.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2023</td><td class="best">52.0%</td><td class="worst">38.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2022</td><td class="best">52.0%</td><td class="worst">38.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2021</td><td class="best">52.0%</td><td class="worst">38.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2020</td><td class="best">52.0%</td><td class="worst">38.0%</td></tr>
+<tr class="cat-row"><td colspan="3">📅 營業利益率 (%)</td></tr><tr><td style="padding-left:24px;color:#718096;">2024</td><td class="best">47.0%</td><td class="worst">34.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2023</td><td class="best">47.0%</td><td class="worst">34.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2022</td><td class="best">47.0%</td><td class="worst">34.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2021</td><td class="best">47.0%</td><td class="worst">34.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2020</td><td class="best">47.0%</td><td class="worst">34.0%</td></tr>
+<tr class="cat-row"><td colspan="3">📅 稅後淨利率 (%)</td></tr><tr><td style="padding-left:24px;color:#718096;">2024</td><td class="best">45.0%</td><td class="worst">32.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2023</td><td class="best">45.0%</td><td class="worst">32.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2022</td><td class="best">45.0%</td><td class="worst">32.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2021</td><td class="best">45.0%</td><td class="worst">32.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2020</td><td class="best">45.0%</td><td class="worst">32.0%</td></tr>
+<tr class="cat-row"><td colspan="3">📅 EPS (元)</td></tr><tr><td style="padding-left:24px;color:#718096;">2024</td><td class="best">7.08</td><td class="worst">2.33</td></tr><tr><td style="padding-left:24px;color:#718096;">2023</td><td class="best">6.32</td><td class="worst">2.22</td></tr><tr><td style="padding-left:24px;color:#718096;">2022</td><td class="best">5.64</td><td class="worst">2.12</td></tr><tr><td style="padding-left:24px;color:#718096;">2021</td><td class="best">5.04</td><td class="worst">2.02</td></tr><tr><td style="padding-left:24px;color:#718096;">2020</td><td class="best">4.50</td><td class="worst">1.92</td></tr>
+<tr class="cat-row"><td colspan="3">📅 ROE (%)</td></tr><tr><td style="padding-left:24px;color:#718096;">2024</td><td class="best">29.4%</td><td class="worst">8.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2023</td><td class="best">29.4%</td><td class="worst">9.6%</td></tr><tr><td style="padding-left:24px;color:#718096;">2022</td><td class="best">29.4%</td><td class="worst">11.5%</td></tr><tr><td style="padding-left:24px;color:#718096;">2021</td><td class="best">29.4%</td><td class="worst">13.9%</td></tr><tr><td style="padding-left:24px;color:#718096;">2020</td><td class="best">29.4%</td><td class="worst">16.6%</td></tr>
+<tr class="cat-row"><td colspan="3">📅 ROIC (%)</td></tr><tr><td style="padding-left:24px;color:#718096;">2024</td><td class="best">21.5%</td><td class="worst">4.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2023</td><td class="best">21.5%</td><td class="worst">4.9%</td></tr><tr><td style="padding-left:24px;color:#718096;">2022</td><td class="best">21.5%</td><td class="worst">6.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2021</td><td class="best">21.5%</td><td class="worst">7.4%</td></tr><tr><td style="padding-left:24px;color:#718096;">2020</td><td class="best">21.5%</td><td class="worst">9.1%</td></tr>
+<tr class="cat-row"><td colspan="3">📅 流動比率 (%)</td></tr><tr><td style="padding-left:24px;color:#718096;">2024</td><td class="best">257%</td><td class="worst">140%</td></tr><tr><td style="padding-left:24px;color:#718096;">2023</td><td class="best">257%</td><td class="worst">140%</td></tr><tr><td style="padding-left:24px;color:#718096;">2022</td><td class="best">257%</td><td class="worst">140%</td></tr><tr><td style="padding-left:24px;color:#718096;">2021</td><td class="best">257%</td><td class="worst">140%</td></tr><tr><td style="padding-left:24px;color:#718096;">2020</td><td class="best">257%</td><td class="worst">140%</td></tr>
+<tr class="cat-row"><td colspan="3">📅 負債比率 (%)</td></tr><tr><td style="padding-left:24px;color:#718096;">2024</td><td class="best">27.0%</td><td class="worst">45.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2023</td><td class="best">27.0%</td><td class="worst">45.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2022</td><td class="best">27.0%</td><td class="worst">45.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2021</td><td class="best">27.0%</td><td class="worst">45.0%</td></tr><tr><td style="padding-left:24px;color:#718096;">2020</td><td class="best">27.0%</td><td class="worst">45.0%</td></tr>
+<tr class="cat-row"><td colspan="3">📅 自由現金流 (億元)</td></tr><tr><td style="padding-left:24px;color:#718096;">2024</td><td class="best">5,664.7</td><td class="worst">79.3</td></tr><tr><td style="padding-left:24px;color:#718096;">2023</td><td class="best">5,057.7</td><td class="worst">75.6</td></tr><tr><td style="padding-left:24px;color:#718096;">2022</td><td class="best">4,515.8</td><td class="worst">72.0</td></tr><tr><td style="padding-left:24px;color:#718096;">2021</td><td class="best">4,032.0</td><td class="worst">68.5</td></tr><tr><td style="padding-left:24px;color:#718096;">2020</td><td class="best">3,600.0</td><td class="worst">65.3</td></tr>
+</tbody></table>
+  <p style="font-size:0.75rem;color:#718096;margin-top:8px;">🟢 綠底=同期最佳　🔴 紅底=同期最差（數值相同時不標色）</p>
+</div>
+
+<div id="ops" class="tab-content">
+  <div class="charts-grid">
+    <div class="chart-card"><div class="chart-title">營業收入趨勢 (億元)</div><div class="chart-container"><canvas id="revChart"></canvas></div></div>
+    <div class="chart-card"><div class="chart-title">毛利率 (%)</div><div class="chart-container"><canvas id="gmChart"></canvas></div></div>
+    <div class="chart-card"><div class="chart-title">營業利益率 (%)</div><div class="chart-container"><canvas id="opChart"></canvas></div></div>
+    <div class="chart-card"><div class="chart-title">稅後淨利率 (%)</div><div class="chart-container"><canvas id="nmChart"></canvas></div></div>
+  </div>
+</div>
+<div id="profit" class="tab-content">
+  <div class="charts-grid">
+    <div class="chart-card"><div class="chart-title">ROE 趨勢 (%)</div><div class="chart-container"><canvas id="roeChart"></canvas></div></div>
+    <div class="chart-card"><div class="chart-title">自由現金流 (億元)</div><div class="chart-container"><canvas id="fcfChart"></canvas></div></div>
+  </div>
+</div>
+<div id="finance" class="tab-content">
+  <div class="charts-grid">
+    <div class="chart-card"><div class="chart-title">負債比率 (%)</div><div class="chart-container"><canvas id="drChart"></canvas></div></div>
+  </div>
+</div>
+<div id="dupont" class="tab-content">
+  <div class="section-title">DuPont 三因子拆解（2024）</div>
+  <div class="insight-box"><h3>📖 DuPont 公式說明</h3><ul>
+    <li>ROE = 淨利率 × 資產周轉率 × 財務槓桿倍數</li>
+    <li>淨利率高 → 獲利能力強（品牌/技術護城河）</li>
+    <li>資產周轉率高 → 資產使用效率高（零售/製造業優勢）</li>
+    <li>財務槓桿高 → 借款放大獲利（金融業常見，注意風險）</li>
+  </ul></div>
+  <table class="cmp-table">
+    <thead><tr><th>股票</th><th>淨利率</th><th>資產周轉率</th><th>財務槓桿</th><th>ROE（實際）</th><th>營收CAGR</th></tr></thead>
+    <tbody><tr><td style="color:#3182ce;font-weight:700;">健康科技A（示範：財務健全）</td><td>45.0%</td><td>0.476x</td><td>1.37x</td><td>29.4%</td><td>12.0%</td></tr><tr><td style="color:#38a169;font-weight:700;">可疑電子B（示範：多項警示）</td><td>32.0%</td><td>0.138x</td><td>1.82x</td><td>8.0%</td><td>5.0%</td></tr></tbody>
+  </table>
+</div>
+<div id="survival" class="tab-content">
+  <div class="insight-box"><h3>🛡️ 這頁回答什麼問題？</h3><ul>
+    <li>這間公司 2 年後還在嗎？財務危機風險高不高？</li>
+    <li>現金流健康嗎？短期能不能還債？</li>
+    <li>業務是在成長還是萎縮？</li>
+  </ul></div>
+  <div class="survival-grid"><div class="survival-card">
+  <div class="survival-header">
+    <span class="survival-sid" style="color:#3182ce">健康科技A（示範：財務健全）</span>
+    <span class="risk-badge" style="background:#38a169">低風險</span>
+  </div>
+  <div class="risk-meter"><div class="risk-meter-fill" style="width:0%;background:#38a169"></div></div>
+  <div class="verdict-text">財務體質健全，近期財務危機風險低。從財務角度可放心評估。</div>
+  <div class="signal-list"><div class="signal-item signal-ok"><span>✅</span><span>自由現金流持續為正（5 年）</span></div><div class="signal-item signal-ok"><span>✅</span><span>營收強勁成長，CAGR +12.0%</span></div><div class="signal-item signal-ok"><span>✅</span><span>持續獲利</span></div><div class="signal-item signal-ok"><span>✅</span><span>負債比率 27%，財務結構健全</span></div><div class="signal-item signal-ok"><span>✅</span><span>流動比率 257%，短期償債能力充足</span></div></div>
+</div><div class="survival-card">
+  <div class="survival-header">
+    <span class="survival-sid" style="color:#38a169">可疑電子B（示範：多項警示）</span>
+    <span class="risk-badge" style="background:#38a169">低風險</span>
+  </div>
+  <div class="risk-meter"><div class="risk-meter-fill" style="width:12%;background:#38a169"></div></div>
+  <div class="verdict-text">財務體質健全，近期財務危機風險低。從財務角度可放心評估。</div>
+  <div class="signal-list"><div class="signal-item signal-ok"><span>✅</span><span>自由現金流持續為正（5 年）</span></div><div class="signal-item signal-ok"><span>✅</span><span>營收穩定成長，CAGR +5.0%</span></div><div class="signal-item signal-ok"><span>✅</span><span>持續獲利</span></div><div class="signal-item signal-ok"><span>✅</span><span>負債比率 45%，財務結構健全</span></div><div class="signal-item signal-warn"><span>⚠️</span><span>流動比率 140%，短期流動性偏緊</span></div></div>
+</div></div>
+  <p style="font-size:0.75rem;color:#718096;">⚠️ 本評估基於公開財報，不構成投資或求職建議。建議搭配最新季報及面試資訊綜合判斷。</p>
+</div>
+<div id="forensic" class="tab-content">
+  <div class="insight-box"><h3>⚖️ 金融檢察官在找什麼？</h3><ul>
+    <li>盈餘品質：淨利 vs 現金流是否吻合？（不吻合 = 可能帳面造假）</li>
+    <li>有盈無現：帳面賺錢但持續無現金 = 台灣掏空案最典型特徵</li>
+    <li>資產膨脹：資產成長遠超營收 = 可能用關聯交易虛增資產</li>
+    <li>應收帳款暴增：塞貨給通路或虛開發票（Channel Stuffing）</li>
+    <li>毛利率突跳：費用資本化、成本操縱</li>
+    <li>股東權益流失：利潤無法解釋的消失 = 疑似掏空</li>
+  </ul></div>
+  <div class="section-title">各股裁定摘要</div>
+  <div class="forensic-verdict warning">
+  <div class="forensic-verdict-label" style="color:#c05621">
+    ⚖️ 健康科技A（示範：財務健全） — 裁定：部分疑點（可疑分 3 點）
+  </div>
+  <div class="forensic-verdict-text">在 2020－2024 年間發現 3 點財務異常，部分指標需進一步確認，建議查閱年報附註。</div>
+</div><div class="forensic-verdict critical">
+  <div class="forensic-verdict-label" style="color:#c53030">
+    ⚖️ 可疑電子B（示範：多項警示） — 裁定：高度可疑（可疑分 9 點）
+  </div>
+  <div class="forensic-verdict-text">在 2020－2024 年間發現 9 點財報異常，「盈餘品質異常」、「資產異常膨脹」、「應收帳款暴增（Channel Stuffing 警示）」 等多項指標同時觸發，為財報造假的強力警示組合。</div>
+</div>
+  <div class="section-title">詳細偵查報告</div>
+  <div class="forensic-grid"><div class="forensic-card">
+  <div class="forensic-card-header" style="background:#3182ce">
+    🔍 健康科技A（示範：財務健全） 財報偵查報告
+  </div>
+  <div class="forensic-findings"><div class="finding ok"><div class="finding-category">✅ 盈餘品質</div><div class="finding-detail">OCF 平均為淨利的 140%，現金流品質良好。</div></div><div class="finding ok"><div class="finding-category">✅ 資產與營收成長平衡</div><div class="finding-detail">資產與營收成長比例合理。</div></div><div class="finding ok"><div class="finding-category">✅ 應收帳款</div><div class="finding-detail">應收帳款與營收成長比例正常。</div></div><div class="finding critical"><div class="finding-category">🔴 股東權益異常流失（疑似掏空）</div><div class="finding-detail">近 5 年累計淨利約 22,870 億，但股東權益僅從 12,264 億變為 19,298 億（應有 35,134 億），差距 15,837 億（129%）無法以股利完全解釋。經典掏空手法：以高額股利為名分配現金後再增資圈錢、或透過關聯方交易將資金轉至私人帳戶。</div></div></div>
+</div><div class="forensic-card">
+  <div class="forensic-card-header" style="background:#38a169">
+    🔍 可疑電子B（示範：多項警示） 財報偵查報告
+  </div>
+  <div class="forensic-findings"><div class="finding critical"><div class="finding-category">🔴 盈餘品質異常</div><div class="finding-detail">連續 5 年 OCF/淨利 < 80%（平均 42%）。淨利遠超現金流是財報操縱最典型特徵，常見手法：提前認列收入、費用遞延至下一期、應收帳款虛增。</div></div><div class="finding critical"><div class="finding-category">🔴 資產異常膨脹</div><div class="finding-detail">資產年均成長 26.0%，遠超營收成長 5.0%（差 21.0ppt）。常見手法：用高價向關係人購入資產、虛增存貨或預付款項、投資空殼子公司將現金轉出。</div></div><div class="finding critical"><div class="finding-category">🔴 應收帳款暴增（Channel Stuffing 警示）</div><div class="finding-detail">應收帳款年均成長 41.8%，遠超營收成長 5.0%（差 36.8ppt）。典型操縱手法：月底大量出貨給關聯通路衝業績，但貨品最終退回；或對空殼客戶開立假發票認列收入。</div></div></div>
+</div></div>
+  <p style="font-size:0.75rem;color:#718096;margin-top:12px;">
+    ⚠️ 本分析為量化財報異常偵測，改編自 Beneish M-Score 方法論。有 flag 不等於定罪，無 flag 不等於清白。
+    確認可疑訊號請查閱：<strong>公開資訊觀測站 → 重大訊息 / 財務報告 / 關係人交易</strong>。
+  </p>
+</div>
+
+<script>
+function switchTab(name,el){
+  document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));
+  document.getElementById(name).classList.add('active');
+  el.classList.add('active');
+}
+const labels=["2024", "2023", "2022", "2021", "2020"];
+const lineOpts={responsive:true,maintainAspectRatio:false,
+  plugins:{legend:{position:'bottom',labels:{font:{size:11}}}},
+  scales:{x:{grid:{display:false}},y:{ticks:{callback:v=>v+'%'}}}};
+const barOpts={responsive:true,maintainAspectRatio:false,
+  plugins:{legend:{position:'bottom',labels:{font:{size:11}}}},
+  scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(0,0,0,0.05)'}}}};
+new Chart(document.getElementById('revChart'),{type:'bar',data:{labels,datasets:[{"label":"健康科技A（示範：財務健全） 營收","data":[12588.154880000006,11239.424000000003,10035.2,8960.0,8000.0],"backgroundColor":"rgba(49,130,206,0.15)","borderColor":"#3182ce","borderWidth":2},{"label":"可疑電子B（示範：多項警示） 營收","data":[1458.6075000000003,1389.15,1323.0,1260.0,1200.0],"backgroundColor":"rgba(56,161,105,0.15)","borderColor":"#38a169","borderWidth":2}]},options:barOpts});
+new Chart(document.getElementById('gmChart'), {type:'line',data:{labels,datasets:[{"label":"健康科技A（示範：財務健全） 毛利率","data":[52.0,52.0,52.0,52.0,52.0],"borderColor":"#3182ce","backgroundColor":"#3182ce","pointRadius":5,"tension":0.3,"fill":false},{"label":"可疑電子B（示範：多項警示） 毛利率","data":[38.0,38.0,38.0,38.0,38.0],"borderColor":"#38a169","backgroundColor":"#38a169","pointRadius":5,"tension":0.3,"fill":false}]},options:lineOpts});
+new Chart(document.getElementById('opChart'), {type:'line',data:{labels,datasets:[{"label":"健康科技A（示範：財務健全） 營業利益率","data":[47.0,47.0,47.0,47.0,47.00000000000001],"borderColor":"#3182ce","backgroundColor":"#3182ce","pointRadius":5,"tension":0.3,"fill":false},{"label":"可疑電子B（示範：多項警示） 營業利益率","data":[34.0,34.0,34.0,34.0,34.0],"borderColor":"#38a169","backgroundColor":"#38a169","pointRadius":5,"tension":0.3,"fill":false}]},options:lineOpts});
+new Chart(document.getElementById('nmChart'), {type:'line',data:{labels,datasets:[{"label":"健康科技A（示範：財務健全） 淨利率","data":[45.0,45.0,44.99999999999999,45.0,45.0],"borderColor":"#3182ce","backgroundColor":"#3182ce","pointRadius":5,"tension":0.3,"fill":false},{"label":"可疑電子B（示範：多項警示） 淨利率","data":[32.0,32.0,32.0,32.0,32.0],"borderColor":"#38a169","backgroundColor":"#38a169","pointRadius":5,"tension":0.3,"fill":false}]},options:lineOpts});
+new Chart(document.getElementById('roeChart'),{type:'line',data:{labels,datasets:[{"label":"健康科技A（示範：財務健全） ROE","data":[29.35420743639922,29.354207436399214,29.354207436399214,29.354207436399214,29.354207436399214],"borderColor":"#3182ce","backgroundColor":"#3182ce","pointRadius":5,"tension":0.3,"fill":false},{"label":"可疑電子B（示範：多項警示） ROE","data":[8.016674683341348,9.620009620009618,11.544011544011545,13.85281385281385,16.623376623376622],"borderColor":"#38a169","backgroundColor":"#38a169","pointRadius":5,"tension":0.3,"fill":false}]},options:lineOpts});
+new Chart(document.getElementById('fcfChart'),{type:'bar',data:{labels,datasets:[{"label":"健康科技A（示範：財務健全） FCF","data":[5664.669696000003,5057.740800000001,4515.839999999999,4031.999999999999,3600.0],"backgroundColor":"rgba(49,130,206,0.7)","borderColor":"#3182ce","borderWidth":2},{"label":"可疑電子B（示範：多項警示） FCF","data":[79.348248,75.56976,71.97119999999998,68.544,65.28],"backgroundColor":"rgba(56,161,105,0.7)","borderColor":"#38a169","borderWidth":2}]},options:barOpts});
+new Chart(document.getElementById('drChart'), {type:'line',data:{labels,datasets:[{"label":"健康科技A（示範：財務健全） 負債比率","data":[27.0,27.0,27.0,27.0,27.0],"borderColor":"#3182ce","backgroundColor":"#3182ce","pointRadius":5,"tension":0.3,"fill":false},{"label":"可疑電子B（示範：多項警示） 負債比率","data":[45.0,45.0,45.00000000000001,45.0,45.0],"borderColor":"#38a169","backgroundColor":"#38a169","pointRadius":5,"tension":0.3,"fill":false}]},options:lineOpts});
+</script>
+</body></html>
