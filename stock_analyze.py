@@ -9,6 +9,8 @@ taiwan-stock-compare: 台灣股票多股財務比較分析工具
 """
 
 import sys
+import json
+import os
 import time
 import sqlite3
 import argparse
@@ -16,7 +18,6 @@ from datetime import date
 from pathlib import Path
 
 import requests
-from bs4 import BeautifulSoup
 
 try:
     import openpyxl
@@ -33,6 +34,15 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 STOCK_COLORS = ['#3182ce', '#38a169', '#dd6b20', '#805ad5', '#e53e3e']
 
+# FinMind API
+FINMIND_TOKEN = os.environ.get('FINMIND_TOKEN', '')
+FINMIND_API   = 'https://api.finmindtrade.com/api/v4/data'
+_DATASETS = {
+    'IS': 'TaiwanStockFinancialStatements',
+    'BS': 'TaiwanStockBalanceSheet',
+    'CF': 'TaiwanStockCashFlowsStatement',
+}
+
 # ─── 快取層 ────────────────────────────────────────────────
 
 def init_cache():
@@ -46,88 +56,48 @@ def init_cache():
     conn.commit()
     return conn
 
-# ─── 抓取層 ────────────────────────────────────────────────
+# ─── 抓取層（FinMind API）──────────────────────────────────
 
-def get_client_key():
-    tz_offset = -480
-    now_ms = time.time() * 1000
-    days = now_ms / 86400000 - tz_offset / 1440
-    return f"2.8|38057.1435627105|46946.0324515993|{tz_offset}|{days}|{days}", days
-
-def _fetch_from_goodinfo(stock_id, rpt_cat, days, client_key):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
-        'Referer': 'https://goodinfo.tw/tw/index.asp',
+def _fetch_finmind(dataset, stock_id, start_date):
+    """從 FinMind API 抓取一個 dataset。"""
+    params = {
+        'dataset':    dataset,
+        'data_id':    stock_id,
+        'start_date': start_date,
+        'token':      FINMIND_TOKEN,
     }
-    url = (f"https://goodinfo.tw/tw/StockFinDetail.asp"
-           f"?RPT_CAT={rpt_cat}&STOCK_ID={stock_id}&REINIT={days:.10f}")
-    r = requests.get(url, headers=headers, cookies={'CLIENT_KEY': client_key}, timeout=15)
-    r.encoding = 'utf-8'
-    if r.status_code != 200:
-        raise RuntimeError(f"Goodinfo 回應 HTTP {r.status_code}，可能封鎖此 IP")
-    if '請輸入驗證碼' in r.text or 'blocked' in r.text.lower():
-        raise RuntimeError("Goodinfo 要求驗證碼或封鎖此 IP，請稍後再試")
-    return r.text
+    r = requests.get(FINMIND_API, params=params, timeout=30)
+    r.raise_for_status()
+    j = r.json()
+    if j.get('status') != 200:
+        raise RuntimeError(f"FinMind 錯誤 ({stock_id}/{dataset}): {j.get('msg', '未知')}")
+    return j.get('data', [])
 
-def fetch_report(stock_id, rpt_cat, days, client_key, conn, use_cache=True):
-    today = date.today().isoformat()
-    if use_cache:
-        row = conn.execute(
-            "SELECT html FROM stock_cache WHERE stock_id=? AND rpt_cat=? AND fetch_date=?",
-            (stock_id, rpt_cat, today)
-        ).fetchone()
-        if row:
-            return BeautifulSoup(row[0], 'html.parser')
-    html = _fetch_from_goodinfo(stock_id, rpt_cat, days, client_key)
-    conn.execute("INSERT OR REPLACE INTO stock_cache VALUES (?,?,?,?)",
-                 (stock_id, rpt_cat, today, html))
-    conn.commit()
-    return BeautifulSoup(html, 'html.parser')
 
-# ─── 解析層 ────────────────────────────────────────────────
-# 修正：舊版用 idx = j*2 假設每年固定佔 2 欄，實際上 Goodinfo 欄位不固定。
-# 新版先掃第一行找出每個年份的精確欄位 index，再用那個 index 取值。
-
-def parse_table(soup, max_years=5):
-    tables = soup.find_all('table')
-    if len(tables) < 7:
-        return {}, []
-    rows = tables[6].find_all('tr')
-    years, year_cols, data = [], {}, {}
-
-    for row in rows:
-        cells = row.find_all(['td', 'th'])
-        if not cells:
+def _to_annual_table(records, max_years):
+    """
+    把 FinMind records 轉成 {欄位名: {年份: 數值}} 格式。
+    只取 Q4 年報（date 結尾為 -12-31）。
+    回傳 (table, years_list_newest_first)
+    """
+    table = {}
+    years_seen = set()
+    for row in records:
+        date_str = row.get('date', '')
+        if not date_str.endswith('-12-31'):
             continue
-        row_data = [c.get_text(strip=True) for c in cells]
-
-        if not years:
-            col_map, found = {}, []
-            for idx, val in enumerate(row_data):
-                if len(val) == 4 and val.isdigit() and 2015 <= int(val) <= 2030:
-                    if val not in col_map:
-                        col_map[val] = idx
-                        found.append(val)
-                        if len(found) >= max_years:
-                            break
-            if found:
-                years, year_cols = found, col_map
-            continue
-
-        if years and len(row_data) >= 2 and row_data[0]:
-            values = {}
-            for yr, col_idx in year_cols.items():
-                if col_idx < len(row_data):
-                    try:
-                        values[yr] = float(row_data[col_idx].replace(',', ''))
-                    except Exception:
-                        values[yr] = None
-            if any(v is not None for v in values.values()):
-                data[row_data[0]] = values
-
-    return data, years
+        year  = date_str[:4]
+        field = row.get('type', '')
+        raw   = row.get('value')
+        try:
+            value = float(raw) if raw is not None else None
+        except (ValueError, TypeError):
+            value = None
+        if field:
+            table.setdefault(field, {})[year] = value
+            years_seen.add(year)
+    years = sorted(years_seen, reverse=True)[:max_years]
+    return table, years
 
 # ─── 指標計算層 ────────────────────────────────────────────
 
@@ -158,11 +128,11 @@ def calculate_metrics(is_d, bs_d, cf_d, years):
         op_k    = _find(is_d, '營業利益')
         ni_k    = _find(is_d, '稅後淨利') or _find(is_d, '本期淨利')
         eps_k   = _find(is_d, '每股') or _find(is_d, 'EPS')
-        ca_k    = _find(bs_d, '流動資產合計') or _find(bs_d, '流動資產總額')
-        cl_k    = _find(bs_d, '流動負債合計') or _find(bs_d, '流動負債總額')
-        tl_k    = _find(bs_d, '負債總額') or _find(bs_d, '負債合計')
-        ta_k    = _find(bs_d, '資產總額') or _find(bs_d, '資產合計')
-        eq_k    = _find(bs_d, '股東權益總額') or _find(bs_d, '權益總額')
+        ca_k    = _find(bs_d, '流動資產合計') or _find(bs_d, '流動資產總額') or _find(bs_d, '流動資產總計')
+        cl_k    = _find(bs_d, '流動負債合計') or _find(bs_d, '流動負債總額') or _find(bs_d, '流動負債總計')
+        tl_k    = _find(bs_d, '負債總計') or _find(bs_d, '負債總額') or _find(bs_d, '負債合計')
+        ta_k    = _find(bs_d, '資產總計') or _find(bs_d, '資產總額') or _find(bs_d, '資產合計')
+        eq_k    = _find(bs_d, '權益總計') or _find(bs_d, '股東權益總額') or _find(bs_d, '權益總額')
         cash_k  = _find(bs_d, '現金') or _find(bs_d, '約當現金')
         ocf_k   = _find(cf_d, '營業活動') or _find(cf_d, '來自營運')
         capex_k = _find(cf_d, '資本支出') or _find(cf_d, '取得不動產')
@@ -595,32 +565,47 @@ def build_cross_forensic(all_stocks):
 # ─── 主要抓取流程 ──────────────────────────────────────────
 
 def fetch_stock(stock_id, max_years=5, use_cache=True):
-    conn = init_cache()
-    client_key, days = get_client_key()
+    conn       = init_cache()
+    today      = date.today().isoformat()
+    start_date = f"{date.today().year - max_years - 1}-01-01"
 
-    print(f"  [{stock_id}] 損益表...", end=' ', flush=True)
-    is_soup = fetch_report(stock_id, 'IS_YEAR', days, client_key, conn, use_cache)
-    is_d, years = parse_table(is_soup, max_years)
-    print("✓")
+    tables    = {}
+    all_years = []
 
-    time.sleep(0.8)
-    print(f"  [{stock_id}] 資產負債表...", end=' ', flush=True)
-    bs_soup = fetch_report(stock_id, 'BS_YEAR', days, client_key, conn, use_cache)
-    bs_d, _ = parse_table(bs_soup, max_years)
-    print("✓")
+    for key, dataset in _DATASETS.items():
+        cached_row = None
+        if use_cache:
+            cached_row = conn.execute(
+                "SELECT html FROM stock_cache WHERE stock_id=? AND rpt_cat=? AND fetch_date=?",
+                (stock_id, key, today)
+            ).fetchone()
 
-    time.sleep(0.8)
-    print(f"  [{stock_id}] 現金流量表...", end=' ', flush=True)
-    cf_soup = fetch_report(stock_id, 'CF_YEAR', days, client_key, conn, use_cache)
-    cf_d, _ = parse_table(cf_soup, max_years)
-    print("✓")
+        if cached_row:
+            records = json.loads(cached_row[0])
+        else:
+            print(f"  [{stock_id}] {key} 從 FinMind 抓取…", end=' ', flush=True)
+            records = _fetch_finmind(dataset, stock_id, start_date)
+            conn.execute("INSERT OR REPLACE INTO stock_cache VALUES (?,?,?,?)",
+                         (stock_id, key, today, json.dumps(records)))
+            conn.commit()
+            print("✓")
+
+        tbl, yrs = _to_annual_table(records, max_years)
+        tables[key] = tbl
+        if not all_years and yrs:
+            all_years = yrs
 
     conn.close()
-    years   = years[:max_years]
-    metrics = calculate_metrics(is_d, bs_d, cf_d, years)
-    return {'stock_id': stock_id, 'years': years,
-            'income_statement': is_d, 'balance_sheet': bs_d,
-            'cash_flow': cf_d, 'metrics': metrics}
+    years   = all_years[:max_years]
+    metrics = calculate_metrics(tables['IS'], tables['BS'], tables['CF'], years)
+    return {
+        'stock_id':         stock_id,
+        'years':            years,
+        'income_statement': tables['IS'],
+        'balance_sheet':    tables['BS'],
+        'cash_flow':        tables['CF'],
+        'metrics':          metrics,
+    }
 
 # ─── 輔助格式化 ────────────────────────────────────────────
 
