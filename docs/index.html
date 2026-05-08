@@ -27,6 +27,11 @@ body{font-family:'Microsoft JhengHei','Noto Sans TC',sans-serif;background:#f0f4
 .hint{font-size:.76rem;color:#718096;margin-top:8px}
 .errmsg{background:#fff5f5;color:#c53030;border:1px solid #feb2b2;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:.86rem;display:none}
 .dis{background:#fffbeb;border:1px solid #f6e05e;border-radius:8px;padding:10px 14px;font-size:.77rem;color:#744210;margin-top:10px;line-height:1.6}
+.setup-banner{background:#e6f0ff;border:1.5px solid #3182ce;border-radius:8px;padding:11px 14px;font-size:.83rem;color:#1a365d;margin-top:10px;display:none;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.setup-btn{padding:7px 16px;background:#2b6cb0;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.83rem;font-weight:600;white-space:nowrap}
+.tok-set{background:#f0fff4;border:1px solid #68d391;border-radius:8px;padding:8px 12px;font-size:.8rem;color:#22543d;margin-top:8px;display:none;align-items:center;justify-content:space-between}
+.tok-inp{width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:.88rem;margin:6px 0 12px;box-sizing:border-box}
+.tok-inp:focus{outline:none;border-color:#3182ce}
 #loading{display:none;text-align:center;padding:50px}
 .spin{width:44px;height:44px;border:4px solid #e2e8f0;border-top-color:#3182ce;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 14px}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -150,6 +155,15 @@ code{background:#edf2f7;padding:1px 4px;border-radius:3px;font-family:monospace;
   </div>
   <p class="hint">✅ 支援上市、上櫃、已下市公司歷史財報 ｜ 資料來源：FinMind API（台灣上市公司財報）</p>
   <div class="errmsg" id="errmsg"></div>
+  <div class="setup-banner" id="setup-banner">
+    🔑 需要 <strong>免費 FinMind 帳號</strong> 才能讀取財報資料 —
+    <a href="https://finmindtrade.com/analysis/#/User/register" target="_blank" style="color:#2b6cb0;font-weight:600">免費申請</a>（1分鐘）後回來設定
+    <button class="setup-btn" onclick="openSetup()">設定 API 金鑰</button>
+  </div>
+  <div class="tok-set" id="tok-set">
+    ✅ FinMind API 金鑰已設定
+    <button class="setup-btn" style="background:#718096;font-size:.75rem;padding:4px 10px" onclick="openSetup()">更換</button>
+  </div>
   <div class="dis">⚠️ 本工具分析企業依法公開申報之財報數字，採量化方法計算財務健康指標。所有結果僅供個人參考，不構成任何法律判斷、投資建議或就業建議。財務指標異常可能有多種正當業務因素，請搭配原始財報及專業意見綜合判斷。</div>
 </div>
 <div id="loading">
@@ -212,6 +226,30 @@ code{background:#edf2f7;padding:1px 4px;border-radius:3px;font-family:monospace;
   </div>
 </div>
 </div>
+<div class="moverlay" id="setup-modal" onclick="if(event.target===this)closeSetup()">
+  <div class="mbox">
+    <button class="mclose" onclick="closeSetup()">✕</button>
+    <div class="mtitle">🔑 設定 FinMind API 金鑰</div>
+    <p style="font-size:.84rem;color:#4a5568;line-height:1.6;margin-bottom:16px">
+      FinMind 提供 <strong>免費帳號</strong>，可存取台灣上市/上櫃財報資料。<br>
+      請先 <a href="https://finmindtrade.com/analysis/#/User/register" target="_blank" style="color:#2b6cb0">前往 FinMind 免費申請帳號</a>，再回來登入取得金鑰。
+    </p>
+    <div style="background:#f7fafc;border-radius:10px;padding:16px;margin-bottom:12px">
+      <strong style="font-size:.85rem;color:#2d3748">方式一：輸入帳號密碼自動取得金鑰</strong>
+      <input class="tok-inp" id="fm-email" placeholder="FinMind 帳號信箱" type="email" autocomplete="username">
+      <input class="tok-inp" id="fm-pw" placeholder="FinMind 密碼" type="password" autocomplete="current-password" style="margin-bottom:0">
+      <button class="go" style="width:100%;margin-top:10px" onclick="loginFM()">🔐 登入並取得金鑰</button>
+    </div>
+    <div style="text-align:center;font-size:.82rem;color:#a0aec0;margin:8px 0">── 或 ──</div>
+    <div style="background:#f7fafc;border-radius:10px;padding:16px">
+      <strong style="font-size:.85rem;color:#2d3748">方式二：直接貼上 API Token</strong>
+      <p style="font-size:.77rem;color:#718096;margin:4px 0 0">（在 FinMind 登入後的個人頁面可複製 Token）</p>
+      <input class="tok-inp" id="fm-token" placeholder="貼上 FinMind API Token…">
+      <button class="go" style="width:100%" onclick="saveTokenDirect()">💾 儲存金鑰</button>
+    </div>
+    <div id="tok-msg" style="margin-top:12px;font-size:.84rem"></div>
+  </div>
+</div>
 <div class="moverlay" id="moverlay" onclick="if(event.target===this)this.classList.remove('open')">
   <div class="mbox">
     <button class="mclose" onclick="document.getElementById('moverlay').classList.remove('open')">✕</button>
@@ -243,9 +281,50 @@ const COLORS=['#3182ce','#38a169','#dd6b20','#805ad5'];
 let charts=[],STATE=null;
 const FM='https://api.finmindtrade.com/api/v4/data';
 const TO_YI=1e5;
+const TK='fm_token';
+
+function getToken(){return localStorage.getItem(TK)||'';}
+function setToken(t){if(t){localStorage.setItem(TK,t);}else localStorage.removeItem(TK);}
+function openSetup(){document.getElementById('setup-modal').classList.add('open');document.getElementById('tok-msg').innerHTML='';}
+function closeSetup(){document.getElementById('setup-modal').classList.remove('open');}
+function updateTokenUI(){
+  const has=!!getToken();
+  document.getElementById('setup-banner').style.display=has?'none':'flex';
+  document.getElementById('tok-set').style.display=has?'flex':'none';
+}
+function saveTokenDirect(){
+  const t=(document.getElementById('fm-token').value||'').trim();
+  if(!t){document.getElementById('tok-msg').innerHTML='<span style="color:#c53030">請貼上 Token</span>';return;}
+  setToken(t);updateTokenUI();
+  document.getElementById('tok-msg').innerHTML='<div style="color:#276749;background:#f0fff4;padding:8px 12px;border-radius:8px">✅ 金鑰已儲存！現在可以開始分析股票。</div>';
+  setTimeout(closeSetup,1500);
+}
+async function loginFM(){
+  const e=(document.getElementById('fm-email').value||'').trim();
+  const p=document.getElementById('fm-pw').value||'';
+  if(!e||!p){document.getElementById('tok-msg').innerHTML='<span style="color:#c53030">請填寫信箱與密碼</span>';return;}
+  document.getElementById('tok-msg').innerHTML='<span style="color:#718096">登入中，請稍候…</span>';
+  try{
+    const r=await fetch('https://api.finmindtrade.com/api/v4/login',{
+      method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:`user_id=${encodeURIComponent(e)}&password=${encodeURIComponent(p)}`
+    });
+    const j=await r.json();
+    if(j.status===200&&j.token){
+      setToken(j.token);updateTokenUI();
+      document.getElementById('tok-msg').innerHTML='<div style="color:#276749;background:#f0fff4;padding:8px 12px;border-radius:8px">✅ 登入成功！金鑰已儲存，可以開始分析了！</div>';
+      setTimeout(closeSetup,1500);
+    }else{
+      document.getElementById('tok-msg').innerHTML=`<span style="color:#c53030">登入失敗：${j.msg||'請確認帳號密碼'}</span>`;
+    }
+  }catch(err){
+    document.getElementById('tok-msg').innerHTML=`<span style="color:#c53030">連線錯誤：${err.message}</span>`;
+  }
+}
 
 async function ffm(ds,sid,yr){
-  const url=`${FM}?dataset=${ds}&stock_id=${encodeURIComponent(sid)}&start_date=${yr}-01-01`;
+  const tok=getToken();
+  const url=`${FM}?dataset=${ds}&stock_id=${encodeURIComponent(sid)}&start_date=${yr}-01-01${tok?'&token='+encodeURIComponent(tok):''}`;
   const r=await fetch(url);if(!r.ok)throw new Error(`HTTP ${r.status}`);
   const j=await r.json();if(j.status!==200)throw new Error(j.msg||'API error');
   return j.data||[];
@@ -434,6 +513,7 @@ function crossF(stocks){
 }
 
 async function go(){
+  if(!getToken()){openSetup();return;}
   const sids=['s1','s2','s3'].map(id=>document.getElementById(id).value.trim()).filter(Boolean);
   if(!sids.length){showErr('請至少輸入一個股票代碼');return;}
   const nY=parseInt(document.getElementById('yrs').value);
@@ -546,6 +626,7 @@ function sw(name,el){
   document.getElementById('p'+name).classList.add('on');el.classList.add('on');
   if(name==='ch'&&STATE)drawCharts(STATE.stocks,STATE.stocks.reduce((m,s,i)=>{m[s.id]=COLORS[i];return m},{}));
 }
+window.addEventListener('DOMContentLoaded',updateTokenUI);
 </script>
 </body>
 </html>
