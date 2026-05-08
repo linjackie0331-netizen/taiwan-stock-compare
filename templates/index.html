@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>台灣股票財務健診 | 含金融檢察官</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft JhengHei','Noto Sans TC',sans-serif;background:#f0f4f8;color:#2d3748;min-height:100vh}
+a{color:#3182ce}
+
+/* ── Header ── */
+.header{background:linear-gradient(135deg,#1a365d,#2b6cb0,#3182ce);color:#fff;padding:24px 32px 20px}
+.header h1{font-size:1.5rem;margin-bottom:4px}
+.header p{font-size:0.84rem;opacity:.85}
+
+/* ── Search ── */
+.search-card{background:#fff;border-radius:16px;padding:28px 32px;margin:24px auto;max-width:780px;box-shadow:0 4px 20px rgba(0,0,0,.1)}
+.search-card h2{font-size:1rem;color:#2b6cb0;margin-bottom:18px;font-weight:700}
+.stock-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.stock-input{flex:1;min-width:130px;padding:10px 14px;border:2px solid #e2e8f0;border-radius:10px;font-size:0.95rem;transition:border .2s}
+.stock-input:focus{outline:none;border-color:#3182ce}
+.stock-input::placeholder{color:#a0aec0}
+.btn-add{padding:10px 16px;background:#ebf8ff;color:#2b6cb0;border:2px dashed #bee3f8;border-radius:10px;cursor:pointer;font-size:0.85rem;font-weight:600;transition:all .2s}
+.btn-add:hover{background:#bee3f8}
+.options-row{display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin-bottom:18px}
+.year-group{display:flex;align-items:center;gap:8px;font-size:0.88rem;color:#4a5568}
+.year-group input[type=range]{width:100px;accent-color:#3182ce}
+.btn-analyze{padding:12px 32px;background:linear-gradient(135deg,#2b6cb0,#3182ce);color:#fff;border:none;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;transition:all .2s;flex-shrink:0}
+.btn-analyze:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(49,130,206,.4)}
+.btn-analyze:disabled{opacity:.5;transform:none;cursor:not-allowed}
+.hint{font-size:0.78rem;color:#718096;margin-top:4px}
+.error-msg{background:#fff5f5;color:#c53030;border:1px solid #feb2b2;border-radius:8px;padding:10px 14px;margin-top:12px;font-size:0.88rem;display:none}
+
+/* ── Loading ── */
+#loading{display:none;text-align:center;padding:60px 20px}
+.spinner{width:48px;height:48px;border:4px solid #e2e8f0;border-top-color:#3182ce;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.load-status{font-size:0.9rem;color:#718096}
+
+/* ── Tabs ── */
+#results{display:none;max-width:1100px;margin:0 auto;padding:0 20px 40px}
+.tabs{display:flex;background:#fff;border-radius:12px 12px 0 0;border-bottom:2px solid #e2e8f0;overflow-x:auto;margin-top:24px}
+.tab-btn{padding:14px 20px;cursor:pointer;font-size:0.9rem;font-weight:600;color:#718096;border:none;background:none;border-bottom:3px solid transparent;margin-bottom:-2px;white-space:nowrap;transition:all .2s}
+.tab-btn.active{color:#2b6cb0;border-bottom-color:#2b6cb0}
+.tab-content{display:none;background:#fff;border-radius:0 0 12px 12px;padding:28px;box-shadow:0 4px 20px rgba(0,0,0,.08)}
+.tab-content.active{display:block}
+
+/* ── Section titles ── */
+.sec-title{font-size:1rem;font-weight:700;color:#2d3748;margin:24px 0 14px;padding-left:10px;border-left:4px solid #3182ce}
+
+/* ── Stock cards ── */
+.stock-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:24px}
+.stock-card{background:#f7fafc;border-radius:12px;padding:20px;border-top:4px solid #3182ce}
+.stock-card h2{font-size:1.05rem;margin-bottom:14px}
+.metric-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #edf2f7;font-size:0.85rem}
+.metric-row:last-child{border-bottom:none}
+.mname{color:#718096;display:flex;align-items:center;gap:4px}
+.mval{font-weight:600}
+.help-btn{background:none;border:none;cursor:pointer;color:#a0aec0;font-size:0.75rem;padding:1px 4px;border-radius:4px;transition:color .15s}
+.help-btn:hover{color:#3182ce}
+
+/* ── Comparison table ── */
+.cmp-wrap{overflow-x:auto}
+.cmp-table{width:100%;border-collapse:collapse;font-size:0.84rem;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.07)}
+.cmp-table th{background:#2b6cb0;color:#fff;padding:10px 14px;text-align:center;white-space:nowrap}
+.cmp-table th:first-child{text-align:left}
+.cmp-table td{padding:8px 14px;text-align:right;border-bottom:1px solid #edf2f7}
+.cmp-table td:first-child{text-align:left;font-weight:600;color:#4a5568;background:#f7fafc;white-space:nowrap}
+.cmp-table .cat-row td{background:#ebf8ff;color:#2b6cb0;font-weight:700;font-size:0.8rem}
+.best{background:#f0fff4!important;color:#276749!important;font-weight:700}
+.worst{background:#fff5f5!important;color:#9b2c2c!important}
+.cmp-table .yr-cell{padding-left:24px;color:#a0aec0;font-weight:400}
+
+/* ── Charts ── */
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:24px}
+.chart-card{background:#f7fafc;border-radius:12px;padding:18px}
+.chart-card.full{grid-column:1/-1}
+.chart-title{font-size:0.88rem;font-weight:700;color:#4a5568;margin-bottom:12px}
+.chart-box{position:relative;height:220px}
+
+/* ── Survival ── */
+.survival-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-bottom:20px}
+.survival-card{background:#f7fafc;border-radius:12px;padding:22px}
+.surv-header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.surv-sid{font-size:1.1rem;font-weight:700}
+.risk-badge{padding:4px 12px;border-radius:99px;color:#fff;font-size:0.78rem;font-weight:700}
+.risk-bar{height:6px;border-radius:99px;background:#e2e8f0;margin:0 0 14px;overflow:hidden}
+.risk-bar-fill{height:100%;border-radius:99px}
+.verdict{font-size:0.87rem;color:#4a5568;line-height:1.6;background:#fff;border-radius:8px;padding:12px;margin-bottom:14px}
+.signals{display:flex;flex-direction:column;gap:6px}
+.sig{display:flex;gap:8px;font-size:0.83rem;padding:7px 10px;border-radius:6px;align-items:flex-start}
+.sig-ok{background:#f0fff4;color:#276749}
+.sig-warn{background:#fffbeb;color:#744210}
+.sig-danger{background:#fff5f5;color:#9b2c2c}
+
+/* ── Forensic ── */
+.forensic-intro{background:linear-gradient(135deg,#ebf8ff,#e6fffa);border:1px solid #bee3f8;border-radius:10px;padding:16px 20px;margin-bottom:20px;font-size:0.85rem;color:#2c5282}
+.forensic-intro strong{display:block;margin-bottom:6px;font-size:0.9rem}
+.forensic-intro li{padding:2px 0 2px 14px;position:relative}
+.forensic-intro li::before{content:'▸';position:absolute;left:0;color:#3182ce}
+.cross-box{background:#fff;border:2px solid #3182ce;border-radius:12px;padding:22px;margin-bottom:24px}
+.cross-box h3{color:#2b6cb0;font-size:0.95rem;margin-bottom:14px;font-weight:800}
+.cross-scores{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.cross-score-item{flex:1;min-width:120px;text-align:center;padding:12px;border-radius:8px;background:#f7fafc}
+.cross-score-sid{font-size:0.85rem;font-weight:700;margin-bottom:4px}
+.cross-score-val{font-size:1.6rem;font-weight:800}
+.cross-score-label{font-size:0.75rem;margin-top:2px}
+.cross-verdict{font-size:0.88rem;color:#4a5568;line-height:1.6;margin-bottom:14px}
+.cross-cmp{margin-bottom:14px}
+.cross-cmp-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #edf2f7;font-size:0.84rem}
+.cross-cmp-label{color:#718096}
+.cross-cmp-vals{display:flex;gap:16px}
+.cross-cmp-val{font-weight:600}
+.cross-cmp-val.best-val{color:#276749;font-weight:800}
+.rec-box{padding:14px 16px;border-radius:8px;font-size:0.87rem;line-height:1.6}
+.rec-strong{background:#fff5f5;border-left:4px solid #c53030;color:#742a2a}
+.rec-moderate{background:#fffbeb;border-left:4px solid #c05621;color:#744210}
+.rec-neutral{background:#f0fff4;border-left:4px solid #276749;color:#22543d}
+.forensic-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px;margin-bottom:20px}
+.forensic-card{background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.forensic-hdr{padding:14px 20px;color:#fff;font-weight:700;font-size:0.95rem}
+.forensic-verdict-box{padding:14px 20px;border-bottom:1px solid #edf2f7}
+.forensic-label{font-size:0.85rem;font-weight:700;margin-bottom:6px}
+.forensic-narrative{font-size:0.83rem;color:#4a5568;line-height:1.7;white-space:pre-line}
+.findings{padding:14px 20px;display:flex;flex-direction:column;gap:10px}
+.finding{border-radius:8px;padding:12px 14px}
+.finding.critical{background:#fff5f5;border-left:4px solid #c53030}
+.finding.warning{background:#fffaf0;border-left:4px solid #c05621}
+.finding.ok{background:#f0fff4;border-left:4px solid #276749}
+.finding-cat{font-size:0.75rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px}
+.finding.critical .finding-cat{color:#c53030}
+.finding.warning .finding-cat{color:#c05621}
+.finding.ok .finding-cat{color:#276749}
+.finding-detail{font-size:0.82rem;line-height:1.6;color:#4a5568}
+.finding.critical .finding-detail{color:#742a2a}
+
+/* ── DuPont ── */
+.insight-box{background:linear-gradient(135deg,#ebf8ff,#e6fffa);border:1px solid #bee3f8;border-radius:10px;padding:16px 20px;margin-bottom:18px}
+.insight-box h3{color:#2b6cb0;font-size:0.88rem;margin-bottom:8px}
+.insight-box li{font-size:0.84rem;color:#4a5568;padding:2px 0 2px 14px;position:relative;list-style:none}
+.insight-box li::before{content:'▸';position:absolute;left:0;color:#3182ce}
+
+/* ── Metric Info Modal ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;display:none}
+.modal-overlay.open{display:flex}
+.modal-box{background:#fff;border-radius:16px;padding:28px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;position:relative}
+.modal-close{position:absolute;top:16px;right:16px;background:none;border:none;cursor:pointer;font-size:1.2rem;color:#718096}
+.modal-title{font-size:1.1rem;font-weight:800;color:#2d3748;margin-bottom:20px;padding-right:30px}
+.modal-section{margin-bottom:16px;padding:14px;border-radius:10px}
+.modal-section.formula{background:#ebf8ff}
+.modal-section.plain{background:#f0fff4}
+.modal-section.job{background:#fffbeb}
+.modal-section.benchmark{background:#faf5ff}
+.modal-section-label{font-size:0.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;color:#718096}
+.modal-section.formula .modal-section-label{color:#2b6cb0}
+.modal-section.plain .modal-section-label{color:#276749}
+.modal-section.job .modal-section-label{color:#744210}
+.modal-section.benchmark .modal-section-label{color:#6b46c1}
+.modal-section-content{font-size:0.88rem;line-height:1.7;color:#4a5568}
+code{background:#edf2f7;padding:1px 5px;border-radius:4px;font-family:monospace;font-size:0.85em}
+.disclaimer{font-size:0.74rem;color:#a0aec0;margin-top:20px;padding-top:12px;border-top:1px solid #edf2f7}
+
+@media(max-width:768px){
+  .charts-grid{grid-template-columns:1fr}
+  .survival-grid{grid-template-columns:1fr}
+  .forensic-grid{grid-template-columns:1fr}
+  .header{padding:20px}
+  .search-card{margin:16px;padding:20px}
+  #results{padding:0 12px 40px}
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🔍 台灣股票財務健診</h1>
+  <p>輸入股票代碼，一鍵取得財務分析、存活評估，以及金融檢察官偵查報告</p>
+</div>
+
+<!-- Search -->
+<div class="search-card">
+  <h2>📋 輸入股票代碼</h2>
+  <div class="stock-row" id="stock-row">
+    <input class="stock-input" placeholder="股票代碼，例如 2330" maxlength="10">
+    <input class="stock-input" placeholder="比較對象（選填），例如 2454" maxlength="10">
+    <button class="btn-add" id="btn-add" onclick="addInput()">＋ 再加一間</button>
+  </div>
+  <div class="options-row">
+    <div class="year-group">
+      <span>分析年數：</span>
+      <input type="range" id="years-slider" min="3" max="10" value="5" oninput="document.getElementById('years-val').textContent=this.value">
+      <span id="years-val">5</span> 年
+    </div>
+    <label style="font-size:0.85rem;color:#4a5568;display:flex;align-items:center;gap:6px">
+      <input type="checkbox" id="no-cache"> 強制重新抓取（忽略當日快取）
+    </label>
+    <button class="btn-analyze" id="btn-analyze" onclick="analyze()">🔍 開始分析</button>
+  </div>
+  <p class="hint">✅ 支援上市、上櫃、已下市公司歷史財報（輸入歷史代碼即可）</p>
+  <div class="error-msg" id="error-msg"></div>
+</div>
+
+<!-- Loading -->
+<div id="loading">
+  <div class="spinner"></div>
+  <p class="load-status">正在連接 Goodinfo 抓取財報資料，請稍候…</p>
+  <p style="font-size:0.8rem;color:#a0aec0;margin-top:8px">每支股票約需 3–8 秒（含防爬蟲延遲）</p>
+</div>
+
+<!-- Results -->
+<div id="results">
+  <nav class="tabs">
+    <button class="tab-btn active" onclick="switchTab('overview',this)">🏠 概覽</button>
+    <button class="tab-btn" onclick="switchTab('charts',this)">📈 財務趨勢</button>
+    <button class="tab-btn" onclick="switchTab('survival',this)">🛡️ 存活評估</button>
+    <button class="tab-btn" onclick="switchTab('forensic',this)">⚖️ 金融檢察官</button>
+    <button class="tab-btn" onclick="switchTab('dupont',this)">🔬 進階分析</button>
+  </nav>
+
+  <div id="tab-overview" class="tab-content active">
+    <div class="sec-title">最新年度快速摘要</div>
+    <div class="stock-cards" id="overview-cards"></div>
+    <div class="sec-title">全期間比較表</div>
+    <div class="cmp-wrap"><table class="cmp-table" id="cmp-table"></table></div>
+    <p style="font-size:0.74rem;color:#a0aec0;margin-top:8px">🟢 綠底=同期最佳　🔴 紅底=同期最差（相同時不標色）</p>
+  </div>
+
+  <div id="tab-charts" class="tab-content">
+    <div class="charts-grid" id="charts-grid">
+      <div class="chart-card"><div class="chart-title">營業收入趨勢（億元）</div><div class="chart-box"><canvas id="c-rev"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">毛利率（%）</div><div class="chart-box"><canvas id="c-gm"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">稅後淨利率（%）</div><div class="chart-box"><canvas id="c-nm"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">ROE 股東報酬率（%）</div><div class="chart-box"><canvas id="c-roe"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">自由現金流（億元）</div><div class="chart-box"><canvas id="c-fcf"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">負債比率（%）</div><div class="chart-box"><canvas id="c-dr"></canvas></div></div>
+    </div>
+  </div>
+
+  <div id="tab-survival" class="tab-content">
+    <div class="survival-grid" id="survival-grid"></div>
+    <p class="disclaimer">⚠️ 存活評估基於公開財報，不構成投資或求職建議。請搭配最新季報及面試資訊綜合判斷。</p>
+  </div>
+
+  <div id="tab-forensic" class="tab-content">
+    <div class="forensic-intro">
+      <strong>⚖️ 金融檢察官在看什麼？</strong>
+      <ul>
+        <li>盈餘品質：淨利 vs 現金流是否一致？（不一致＝可能帳面造假）</li>
+        <li>有盈無現：帳面賺錢但自由現金流持續負值＝台灣掏空案最典型特徵</li>
+        <li>資產膨脹：資產成長遠超營收＝可能用關聯交易虛增資產、轉移現金</li>
+        <li>應收帳款暴增：塞貨給通路衝業績（Channel Stuffing）或虛開發票</li>
+        <li>毛利率突跳：費用資本化、成本操縱（WorldCom 手法）</li>
+        <li>股東權益流失：累計利潤莫名消失＝疑似掏空</li>
+      </ul>
+    </div>
+    <div id="cross-forensic"></div>
+    <div class="sec-title">各股詳細偵查報告</div>
+    <div class="forensic-grid" id="forensic-grid"></div>
+    <p class="disclaimer">⚠️ 本分析為量化財報異常偵測，改編自 Beneish M-Score。有警示≠定罪，無警示≠清白。確認疑點請查：<strong>公開資訊觀測站 → 重大訊息 / 關係人交易</strong>。</p>
+  </div>
+
+  <div id="tab-dupont" class="tab-content">
+    <div class="insight-box"><h3>📖 DuPont 分解：ROE = 淨利率 × 資產周轉率 × 財務槓桿</h3><ul>
+      <li>淨利率高 → 獲利能力強（品牌、技術護城河）</li>
+      <li>資產周轉率高 → 資產使用效率佳（零售業、製造業優勢）</li>
+      <li>財務槓桿高 → 借款放大報酬（金融業常見，注意風險）</li>
+    </ul></div>
+    <div class="cmp-wrap"><table class="cmp-table" id="dupont-table"></table></div>
+  </div>
+</div>
+
+<!-- Metric Info Modal -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal-box">
+    <button class="modal-close" onclick="document.getElementById('modal-overlay').classList.remove('open')">✕</button>
+    <div class="modal-title" id="modal-title"></div>
+    <div class="modal-section formula">
+      <div class="modal-section-label">📐 計算公式</div>
+      <div class="modal-section-content" id="modal-formula"></div>
+    </div>
+    <div class="modal-section plain">
+      <div class="modal-section-label">💬 白話說明</div>
+      <div class="modal-section-content" id="modal-plain"></div>
+    </div>
+    <div class="modal-section job">
+      <div class="modal-section-label">🎯 求職者要看什麼</div>
+      <div class="modal-section-content" id="modal-job"></div>
+    </div>
+    <div class="modal-section benchmark">
+      <div class="modal-section-label">📊 參考基準（台灣一般製造/科技業）</div>
+      <div class="modal-section-content" id="modal-bench"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// 指標說明辭典 — 每個指標的公式、白話說明、求職視角
+// ═══════════════════════════════════════════════════════
+const M = {
+  revenue:{label:'營業收入',unit:'億元',
+    formula:'商品銷售額 ＋ 服務收入，即公司當年「收了多少錢」',
+    plain:'最直觀的業務規模指標。不是利潤，只是收到多少。',
+    job:'看趨勢：連年成長 → 公司在擴張市場；連年衰退 → 業務萎縮或競爭力下滑，需特別警惕。',
+    bench:'台灣上市公司差異極大，重點看趨勢方向而非絕對數字。'},
+  gross_margin:{label:'毛利率',unit:'%',
+    formula:'<code>（收入 - 直接成本）÷ 收入 × 100%</code>',
+    plain:'賣 100 元，扣掉材料費、製造費等直接生產成本後還剩幾元。毛利率 50% 代表成本只花 50 元，留下 50 元毛利。',
+    job:'越高代表護城河越深（品牌溢價、技術壁壘、專利）。低毛利率的公司容易在原物料漲價時大幅虧損。',
+    bench:'半導體設計 45-60%｜晶圓代工 >50%｜電子組裝 5-15%｜軟體/服務 60-80%'},
+  op_margin:{label:'營業利益率',unit:'%',
+    formula:'<code>營業利益 ÷ 收入 × 100%</code>',
+    plain:'毛利再扣掉薪資、租金、行銷費用、研發費用後的利潤率。這才是「做本業生意真正賺」的部分，排除業外干擾。',
+    job:'比毛利率更真實反映公司管理效率。持續上升 → 費用控制有效；持續下降 → 費用膨脹比業績快。',
+    bench:'>15% 優秀，>25% 卓越，<5% 偏低，負值代表本業虧損'},
+  net_margin:{label:'稅後淨利率',unit:'%',
+    formula:'<code>稅後淨利 ÷ 收入 × 100%</code>',
+    plain:'賣 100 元，最終真正落入口袋多少元。包含業外損益（股票投資收益、利息支出等）。',
+    job:'同時對照「盈餘品質」（OCF/NI）：如果淨利高但現金流低，這個數字可能有水分。一次性業外收入會讓淨利看起來很好看但不持續。',
+    bench:'>10% 優秀，>5% 尚可，<3% 偏低，負值虧損'},
+  eps:{label:'每股盈餘（EPS）',unit:'元',
+    formula:'<code>稅後淨利 ÷ 在外流通股數</code>',
+    plain:'公司每一股股票為股東賺了幾元。EPS 5元 = 持有一股，公司幫你賺了 5 元。',
+    job:'對求職者意義不大，但連年負值（虧損）是高度危險訊號。股票選擇權薪酬的公司，EPS 成長更重要。',
+    bench:'成熟科技業 >5 元，成長型公司可能較低但要看趨勢'},
+  roe:{label:'ROE 股東報酬率',unit:'%',
+    formula:'<code>稅後淨利 ÷ 股東權益 × 100%</code>',
+    plain:'股東每投入 100 元，公司幫他賺了幾元。ROE 20% = 投 100 元，一年賺 20 元。',
+    job:'衡量公司替股東創造價值的效率。高 ROE 通常代表競爭優勢強；注意高槓桿也會讓 ROE 看起來高（但這種高風險大）。',
+    bench:'>20% 卓越，>15% 優秀，8-15% 一般，<5% 代表獲利效率差'},
+  roa:{label:'ROA 資產報酬率',unit:'%',
+    formula:'<code>稅後淨利 ÷ 總資產 × 100%</code>',
+    plain:'公司每 100 元資產能產生幾元的利潤。衡量整體資產使用效率，不受負債結構影響。',
+    job:'跨行業比較時比 ROE 更公平，因為不受借款多少影響。重資產行業（製造業）ROA 天生較低。',
+    bench:'>10% 優秀，5-10% 一般，<3% 偏低'},
+  roic:{label:'ROIC 投入資本報酬率',unit:'%',
+    formula:'<code>稅後營業利益 ÷ 投入資本 × 100%</code>（投入資本 ≈ 總資產 - 流動負債）',
+    plain:'專門衡量核心業務的賺錢效率，排除財務操作的影響，是最「乾淨」的業務效率指標。',
+    job:'比 ROE 更難被財務槓桿「美化」。ROIC 持續高於資金成本（約 6-8%），才是真正在替股東創造價值的公司。',
+    bench:'>15% 優秀，10-15% 良好，<WACC（約6-8%）代表投資不合算'},
+  current_ratio:{label:'流動比率',unit:'%',
+    formula:'<code>流動資產 ÷ 流動負債 × 100%</code>（流動 = 1 年內）',
+    plain:'公司一年內能變現的資產，是一年內要還的債的幾倍。200% 代表有 2 倍緩衝空間。',
+    job:'這是判斷「公司下個月還能不能付薪水」的關鍵指標。<100% 代表短期可能週轉不靈，是非常危險的訊號。',
+    bench:'>150% 安全，100-150% 需監控，<100% 高度危險'},
+  debt_ratio:{label:'負債比率',unit:'%',
+    formula:'<code>總負債 ÷ 總資產 × 100%</code>',
+    plain:'公司的資產有幾成是靠借錢來的。60% 代表每 100 元資產中有 60 元是借來的。',
+    job:'越高代表財務槓桿越高，景氣一差就容易出問題。高負債公司裁員意願更強（要降成本還債）。',
+    bench:'製造業 40-60% 正常，>70% 屬高槓桿，金融業因業務特性天生高槓桿，需另行判斷'},
+  fcf:{label:'自由現金流',unit:'億元',
+    formula:'<code>營業活動現金流 - 資本支出（設備採購）</code>',
+    plain:'做完生意、買完設備後，手頭真正剩下的現金。這才是公司「真正賺到的錢」，不能被帳務技巧美化。',
+    job:'金融檢察官最重視的指標。持續為正 = 公司真正賺錢；持續為負 = 在燒錢。長期負 FCF 是存活危機前兆。',
+    bench:'穩健公司 FCF > 0 且趨勢成長；FCF 連 2 年以上為負需高度警惕'},
+  rev_cagr:{label:'營收 CAGR 年均成長率',unit:'%',
+    formula:'<code>（最新年收入 / 最舊年收入）^ (1/年數) − 1</code>（複合年均成長率）',
+    plain:'過去幾年，平均每年業績成長多少個百分點。比直接看某一年的成長率更穩定、不受單年波動影響。',
+    job:'>15% 高成長公司，股票激勵有潛力；5-15% 穩定成長；<0% 業務在萎縮，要仔細評估是否為景氣循環或結構性問題。',
+    bench:'台灣科技業成長型 10-25%，成熟型 3-8%，衰退型 <0%'},
+  asset_turnover:{label:'資產周轉率',unit:'x',
+    formula:'<code>收入 ÷ 總資產</code>',
+    plain:'每 1 元資產能創造幾元的收入。1.5x 代表用了 100 億資產，創造了 150 億收入。',
+    job:'越高代表資產使用越有效率。不同行業差異很大，重資產製造業天生低，輕資產服務業高。',
+    bench:'電商/零售 >1.5x｜科技業 0.5-1.0x｜重工業 0.3-0.6x'},
+  equity_mult:{label:'財務槓桿倍數',unit:'x',
+    formula:'<code>總資產 ÷ 股東權益</code>',
+    plain:'借款讓股東的報酬放大了幾倍。2x 代表用了一半自有資金、一半借款。槓桿高時好年好很多、壞年也壞很多。',
+    job:'>3x 屬高槓桿，一定要同時看流動比率和利息保障倍數，確認公司還得起債。',
+    bench:'製造業 1.5-2.5x 屬正常，>3x 需關注，金融業例外'},
+};
+
+// ═══════════════════════════════════════════════════════
+// State & Constants
+// ═══════════════════════════════════════════════════════
+const COLORS = ['#3182ce','#38a169','#dd6b20','#805ad5','#e53e3e'];
+const ICONS = {ok:'✅',warn:'⚠️',danger:'🔴',warning:'⚠️',critical:'🔴',clean:'✅'};
+let charts = [];
+let currentData = null;
+
+// ═══════════════════════════════════════════════════════
+// UI helpers
+// ═══════════════════════════════════════════════════════
+function fmt(v, d=1, sfx='') {
+  if (v == null) return '—';
+  return Number(v).toLocaleString('zh-TW', {minimumFractionDigits:d, maximumFractionDigits:d}) + sfx;
+}
+function fmtArrow(v, prev) {
+  if (v == null || prev == null || prev === 0) return '';
+  const pct = (v - prev) / Math.abs(prev) * 100;
+  return pct > 5 ? ' ↑' : pct < -5 ? ' ↓' : '';
+}
+function addInput() {
+  const row = document.getElementById('stock-row');
+  const inputs = row.querySelectorAll('.stock-input');
+  if (inputs.length >= 5) { alert('最多比較 5 間公司'); return; }
+  const inp = document.createElement('input');
+  inp.className = 'stock-input';
+  inp.placeholder = `第 ${inputs.length+1} 間（選填）`;
+  inp.maxLength = 10;
+  row.insertBefore(inp, document.getElementById('btn-add'));
+  if (inputs.length >= 4) document.getElementById('btn-add').style.display='none';
+}
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(e=>e.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  el.classList.add('active');
+  if (name==='charts' && currentData) drawCharts(currentData);
+}
+function showMetricHelp(key) {
+  const info = M[key]; if (!info) return;
+  document.getElementById('modal-title').innerHTML = `${info.label} <small style="color:#718096;font-weight:400">(${info.unit || '—'})</small>`;
+  document.getElementById('modal-formula').innerHTML = info.formula;
+  document.getElementById('modal-plain').textContent = info.plain;
+  document.getElementById('modal-job').textContent = info.job;
+  document.getElementById('modal-bench').textContent = info.bench;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function closeModal(e) {
+  if (e.target === document.getElementById('modal-overlay'))
+    document.getElementById('modal-overlay').classList.remove('open');
+}
+function helpBtn(key) {
+  return `<button class="help-btn" onclick="showMetricHelp('${key}')" title="點擊看白話說明">❓</button>`;
+}
+
+// ═══════════════════════════════════════════════════════
+// Main: Analyze
+// ═══════════════════════════════════════════════════════
+async function analyze() {
+  const inputs = document.querySelectorAll('.stock-input');
+  const stocks = [...inputs].map(i=>i.value.trim()).filter(Boolean);
+  if (!stocks.length) { showError('請至少輸入一個股票代碼'); return; }
+
+  const years   = document.getElementById('years-slider').value;
+  const noCache = document.getElementById('no-cache').checked;
+
+  document.getElementById('error-msg').style.display = 'none';
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('btn-analyze').disabled = true;
+
+  charts.forEach(c=>c.destroy()); charts = [];
+
+  try {
+    const res = await fetch('/api/analyze', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({stocks, years:parseInt(years), no_cache:noCache})
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) { showError(data.error || '分析失敗，請確認股票代碼並重試'); return; }
+
+    currentData = data;
+    renderAll(data);
+    document.getElementById('results').style.display = 'block';
+    document.getElementById('results').scrollIntoView({behavior:'smooth', block:'start'});
+  } catch(e) {
+    showError('無法連線，請確認後端服務是否啟動（python app.py）');
+  } finally {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('btn-analyze').disabled = false;
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-msg');
+  el.textContent = '❌ ' + msg; el.style.display = 'block';
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('btn-analyze').disabled = false;
+}
+
+// ═══════════════════════════════════════════════════════
+// Render all tabs
+// ═══════════════════════════════════════════════════════
+function renderAll(data) {
+  const sids = Object.keys(data.stocks).filter(k=>!k.startsWith('_'));
+  const colorMap = {};
+  sids.forEach((sid,i) => colorMap[sid] = COLORS[i % COLORS.length]);
+
+  renderOverview(data.stocks, sids, colorMap);
+  renderSurvival(data.stocks, sids, colorMap);
+  renderForensic(data.stocks, sids, colorMap, data.stocks._cross);
+  renderDuPont(data.stocks, sids, colorMap);
+  // Charts drawn on demand (tab click)
+}
+
+// ── Overview ────────────────────────────────────────────
+function renderOverview(stocks, sids, colorMap) {
+  // Summary cards
+  const cardsEl = document.getElementById('overview-cards');
+  cardsEl.innerHTML = '';
+  sids.forEach(sid => {
+    const yrs = stocks[sid].years;
+    const yr  = yrs[0];
+    const m   = stocks[sid].metrics[yr] || {};
+    const color = colorMap[sid];
+    cardsEl.innerHTML += `
+<div class="stock-card" style="border-top-color:${color}">
+  <h2 style="color:${color}">🏢 ${sid}</h2>
+  ${cardRow('營業收入',fmt(m.revenue,1,'億'),color,'revenue')}
+  ${cardRow('毛利率',fmt(m.gross_margin,1,'%'),color,'gross_margin')}
+  ${cardRow('稅後淨利率',fmt(m.net_margin,1,'%'),color,'net_margin')}
+  ${cardRow('EPS',fmt(m.eps,2,'元'),color,'eps')}
+  ${cardRow('ROE',fmt(m.roe,1,'%'),color,'roe')}
+  ${cardRow('負債比率',fmt(m.debt_ratio,1,'%'),color,'debt_ratio')}
+  ${cardRow('自由現金流',fmt(m.fcf,1,'億'),color,'fcf')}
+</div>`;
+  });
+
+  // Comparison table
+  const allYrs = stocks[sids[0]].years;
+  const thead = `<thead><tr><th>指標 / 年度</th>${sids.map(s=>`<th style="color:${colorMap[s]};background:#1a365d">${s}</th>`).join('')}</tr></thead>`;
+
+  const rows = [
+    ['營業收入（億元）','revenue',true,v=>fmt(v,1)],
+    ['毛利率（%）','gross_margin',true,v=>fmt(v,1,'%')],
+    ['營業利益率（%）','op_margin',true,v=>fmt(v,1,'%')],
+    ['稅後淨利率（%）','net_margin',true,v=>fmt(v,1,'%')],
+    ['EPS（元）','eps',true,v=>fmt(v,2,'元')],
+    ['ROE（%）','roe',true,v=>fmt(v,1,'%')],
+    ['ROIC（%）','roic',true,v=>fmt(v,1,'%')],
+    ['流動比率（%）','current_ratio',true,v=>fmt(v,0,'%')],
+    ['負債比率（%）','debt_ratio',false,v=>fmt(v,1,'%')],
+    ['自由現金流（億元）','fcf',true,v=>fmt(v,1)],
+  ].map(([label,key,higher,fmtFn])=>yearRows(label,key,higher,fmtFn,stocks,sids,allYrs)).join('');
+
+  document.getElementById('cmp-table').innerHTML = thead + `<tbody>${rows}</tbody>`;
+}
+
+function cardRow(label, val, color, key) {
+  return `<div class="metric-row">
+    <span class="mname">${label}${helpBtn(key)}</span>
+    <span class="mval">${val}</span>
+  </div>`;
+}
+
+function yearRows(label, key, higher, fmtFn, stocks, sids, allYrs) {
+  const cat = `<tr class="cat-row"><td colspan="${sids.length+1}">📅 ${label} ${helpBtn(key)}</td></tr>`;
+  const body = allYrs.map(yr => {
+    const vals = {};
+    sids.forEach(sid => { vals[sid] = stocks[sid].metrics[yr]?.[key] ?? null; });
+    const valid = Object.entries(vals).filter(([,v])=>v!=null);
+    const bestV = valid.length ? (higher ? Math.max : Math.min)(...valid.map(([,v])=>v)) : null;
+    const worstV= valid.length ? (higher ? Math.min : Math.max)(...valid.map(([,v])=>v)) : null;
+    const allSame = bestV === worstV;
+    const tds = sids.map(sid => {
+      const v = vals[sid];
+      const d = v != null ? fmtFn(v) : '—';
+      const cls = (!allSame && v!=null) ? (v===bestV?' class="best"' : v===worstV?' class="worst"' : '') : '';
+      return `<td${cls}>${d}</td>`;
+    }).join('');
+    return `<tr><td class="yr-cell">${yr}</td>${tds}</tr>`;
+  }).join('');
+  return cat + body;
+}
+
+// ── Charts ───────────────────────────────────────────────
+function drawCharts(data) {
+  const sids = Object.keys(data.stocks).filter(k=>!k.startsWith('_'));
+  const colorMap = {}; sids.forEach((s,i)=>colorMap[s]=COLORS[i%COLORS.length]);
+  const allYrs = data.stocks[sids[0]].years;
+  const labels = [...allYrs].reverse();
+
+  function getVals(sid, key) { return labels.map(yr=>data.stocks[sid].metrics[yr]?.[key]??null); }
+  function rgba(hex,a){const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return `rgba(${r},${g},${b},${a})`;}
+
+  const lineOpts = {responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{position:'bottom',labels:{font:{size:11}}}},
+    scales:{x:{grid:{display:false}},y:{ticks:{callback:v=>v+'%'}}}};
+  const barOpts  = {responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{position:'bottom',labels:{font:{size:11}}}},
+    scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(0,0,0,0.05)'}}}};
+
+  [
+    ['c-rev',  'bar',  sids.map(s=>({label:`${s} 營收`,data:getVals(s,'revenue').map(v=>v==null?null:+(v.toFixed(1))),backgroundColor:rgba(colorMap[s],0.7),borderColor:colorMap[s],borderWidth:2})),barOpts],
+    ['c-gm',   'line', sids.map(s=>({label:`${s} 毛利率`,data:getVals(s,'gross_margin').map(v=>v==null?null:+(v.toFixed(2))),borderColor:colorMap[s],backgroundColor:colorMap[s],pointRadius:5,tension:.3,fill:false})),lineOpts],
+    ['c-nm',   'line', sids.map(s=>({label:`${s} 淨利率`,data:getVals(s,'net_margin').map(v=>v==null?null:+(v.toFixed(2))),borderColor:colorMap[s],backgroundColor:colorMap[s],pointRadius:5,tension:.3,fill:false})),lineOpts],
+    ['c-roe',  'line', sids.map(s=>({label:`${s} ROE`,data:getVals(s,'roe').map(v=>v==null?null:+(v.toFixed(2))),borderColor:colorMap[s],backgroundColor:colorMap[s],pointRadius:5,tension:.3,fill:false})),lineOpts],
+    ['c-fcf',  'bar',  sids.map(s=>({label:`${s} FCF`,data:getVals(s,'fcf').map(v=>v==null?null:+(v.toFixed(1))),backgroundColor:rgba(colorMap[s],0.7),borderColor:colorMap[s],borderWidth:2})),barOpts],
+    ['c-dr',   'line', sids.map(s=>({label:`${s} 負債比率`,data:getVals(s,'debt_ratio').map(v=>v==null?null:+(v.toFixed(2))),borderColor:colorMap[s],backgroundColor:colorMap[s],pointRadius:5,tension:.3,fill:false})),lineOpts],
+  ].forEach(([id,type,datasets,opts])=>{
+    const el = document.getElementById(id);
+    if (!el) return;
+    const existing = Chart.getChart(el);
+    if (existing) existing.destroy();
+    charts.push(new Chart(el,{type,data:{labels,datasets},options:opts}));
+  });
+}
+
+// ── Survival ─────────────────────────────────────────────
+function renderSurvival(stocks, sids, colorMap) {
+  const el = document.getElementById('survival-grid');
+  el.innerHTML = sids.map(sid => {
+    const s = stocks[sid].survival;
+    const meter = Math.min(100, s.pts / 8 * 100);
+    const sigs = s.signals.map(([lvl,msg]) =>
+      `<div class="sig sig-${lvl==='ok'?'ok':lvl==='warn'?'warn':'danger'}">${ICONS[lvl]||'•'} ${msg}</div>`
+    ).join('');
+    return `<div class="survival-card">
+  <div class="surv-header">
+    <span class="surv-sid" style="color:${colorMap[sid]}">${sid}</span>
+    <span class="risk-badge" style="background:${s.color}">${s.label}</span>
+  </div>
+  <div class="risk-bar"><div class="risk-bar-fill" style="width:${meter.toFixed(0)}%;background:${s.color}"></div></div>
+  <div class="verdict">${s.verdict}</div>
+  <div class="signals">${sigs}</div>
+</div>`;
+  }).join('');
+}
+
+// ── Forensic ─────────────────────────────────────────────
+function renderForensic(stocks, sids, colorMap, cross) {
+  // Cross comparison
+  const crossEl = document.getElementById('cross-forensic');
+  if (cross && sids.length >= 2) {
+    const scoreItems = sids.map(sid => {
+      const s = cross.summary[sid];
+      return `<div class="cross-score-item" style="border-top:3px solid ${s.color}">
+  <div class="cross-score-sid" style="color:${colorMap[sid]}">${sid}</div>
+  <div class="cross-score-val" style="color:${s.color}">${s.score}</div>
+  <div class="cross-score-label" style="color:${s.color}">${s.label}</div>
+</div>`;
+    }).join('');
+
+    const cmpRows = (cross.comparisons||[]).map(c => {
+      const vals = sids.map(sid => {
+        const v = c.values[sid];
+        const isBest = sid === c.best;
+        return `<span class="cross-cmp-val${isBest?' best-val':''}">${sid}: ${v!=null?v.toFixed(1):'—'}</span>`;
+      }).join('');
+      return `<div class="cross-cmp-row"><span class="cross-cmp-label">${c.label}</span><span class="cross-cmp-vals">${vals}</span></div>`;
+    }).join('');
+
+    const recClass = {strong:'rec-strong',moderate:'rec-moderate',neutral:'rec-neutral'}[cross.rec_level]||'rec-neutral';
+
+    crossEl.innerHTML = `
+<div class="cross-box">
+  <h3>🔍 跨公司對比裁定</h3>
+  <div class="cross-scores">${scoreItems}</div>
+  <div class="cross-verdict">${cross.verdict}</div>
+  ${cmpRows ? `<div class="cross-cmp"><div style="font-size:.8rem;color:#718096;margin-bottom:6px">關鍵指標對比（最新年）：</div>${cmpRows}</div>` : ''}
+  <div class="rec-box ${recClass}">🎯 <strong>求職建議：</strong>${cross.recommendation}</div>
+</div>`;
+  } else {
+    crossEl.innerHTML = '';
+  }
+
+  // Per-company cards
+  const grid = document.getElementById('forensic-grid');
+  grid.innerHTML = sids.map(sid => {
+    const f = stocks[sid].forensic;
+    const color = colorMap[sid];
+    const findings = f.flags.map(([sev,cat,detail]) => `
+<div class="finding ${sev}">
+  <div class="finding-cat">${{critical:'🔴 嚴重警示',warning:'⚠️ 需要關注',ok:'✅ 正常'}[sev]||cat} — ${cat}</div>
+  <div class="finding-detail">${detail}</div>
+</div>`).join('');
+    return `<div class="forensic-card">
+  <div class="forensic-hdr" style="background:${color}">🔍 ${sid} 財報偵查報告</div>
+  <div class="forensic-verdict-box">
+    <div class="forensic-label" style="color:${f.color}">⚖️ 裁定：${f.label}（可疑分 ${f.score} 點）</div>
+    <div class="forensic-narrative">${f.narrative||f.summary}</div>
+  </div>
+  <div class="findings">${findings}</div>
+</div>`;
+  }).join('');
+}
+
+// ── DuPont ───────────────────────────────────────────────
+function renderDuPont(stocks, sids, colorMap) {
+  const yr = stocks[sids[0]].years[0];
+  const thead = `<thead><tr><th>股票</th><th>淨利率 ${helpBtn('net_margin')}</th><th>資產周轉率 ${helpBtn('asset_turnover')}</th><th>財務槓桿 ${helpBtn('equity_mult')}</th><th>ROE（實際）${helpBtn('roe')}</th><th>營收CAGR ${helpBtn('rev_cagr')}</th></tr></thead>`;
+  const rows = sids.map(sid => {
+    const m = stocks[sid].metrics[yr]||{};
+    const at = m.asset_turnover != null ? fmt(m.asset_turnover,3,'x') : '—';
+    const em = m.equity_mult    != null ? fmt(m.equity_mult,2,'x')    : '—';
+    return `<tr><td style="color:${colorMap[sid]};font-weight:700">${sid}</td>
+<td>${fmt(m.net_margin,1,'%')}</td><td>${at}</td><td>${em}</td>
+<td>${fmt(m.roe,1,'%')}</td><td>${fmt(m.rev_cagr,1,'%')}</td></tr>`;
+  }).join('');
+  document.getElementById('dupont-table').innerHTML = thead + `<tbody>${rows}</tbody>`;
+}
+
+// ── Charts on tab switch ─────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Also draw charts when tab is clicked
+});
+</script>
+</body>
+</html>

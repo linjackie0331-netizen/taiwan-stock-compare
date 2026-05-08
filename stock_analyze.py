@@ -20,7 +20,7 @@ from bs4 import BeautifulSoup
 
 try:
     import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
     HAS_EXCEL = True
 except ImportError:
@@ -323,9 +323,8 @@ def calc_survival_score(stock_data):
 def calc_forensic_score(stock_data):
     years   = stock_data['years']
     metrics = stock_data['metrics']
-    is_d    = stock_data['income_statement']
     bs_d    = stock_data['balance_sheet']
-    cf_d    = stock_data['cash_flow']
+    _ = stock_data['income_statement'], stock_data['cash_flow']  # reserved for future checks
     flags   = []   # (severity, category, detail)
     score   = 0    # 累計可疑分數
 
@@ -527,6 +526,65 @@ def calc_forensic_score(stock_data):
     return {'level': 'clean', 'label': '未見明顯異常', 'color': '#276749', 'score': score,
             'summary': f'在 {yr_range} 年間主要財報指標正常，未出現典型財報造假特徵。',
             'narrative': narrative, 'flags': flags}
+
+# ─── 跨公司金融檢察官對比 ───────────────────────────────────
+
+def build_cross_forensic(all_stocks):
+    """比較所有受分析公司的財報可疑程度，給出求職建議。"""
+    sids    = list(all_stocks.keys())
+    fscores = {sid: calc_forensic_score(all_stocks[sid]) for sid in sids}
+    scores  = {sid: fscores[sid]['score'] for sid in sids}
+    ranked  = sorted(sids, key=lambda s: scores[s])  # 可疑程度從低到高
+    cleanest, riskiest = ranked[0], ranked[-1]
+    gap = scores[riskiest] - scores[cleanest]
+
+    # 整體裁定
+    if gap <= 1:
+        if scores[riskiest] < 3:
+            verdict = f'兩間公司財報品質相近，均未見明顯異常（可疑分差距僅 {gap} 點）。'
+        else:
+            verdict = f'兩間公司均存在部分疑點，差異不顯著（可疑分差距 {gap} 點）。'
+    elif scores[riskiest] >= 6:
+        verdict = (f'財報品質落差極大：{cleanest}（{scores[cleanest]} 分，相對透明）'
+                   f'vs {riskiest}（{scores[riskiest]} 分，高度可疑）。')
+    else:
+        verdict = f'{cleanest}（{scores[cleanest]} 分）財報品質優於 {riskiest}（{scores[riskiest]} 分）。'
+
+    # 關鍵指標橫向比較
+    latest_yr = all_stocks[sids[0]]['years'][0]
+    comparisons = []
+    for key, label, higher in [('gross_margin','毛利率',True),('net_margin','稅後淨利率',True),
+                                 ('roe','ROE',True),('debt_ratio','負債比率',False),
+                                 ('current_ratio','流動比率',True),('fcf','自由現金流',True)]:
+        vals = {sid: all_stocks[sid]['metrics'].get(latest_yr,{}).get(key) for sid in sids}
+        valid = {sid: v for sid,v in vals.items() if v is not None}
+        if len(valid) >= 2:
+            best = (max if higher else min)(valid, key=valid.get)
+            comparisons.append({'label':label,'key':key,'values':valid,'best':best,'higher':higher})
+
+    # 求職建議
+    if scores[riskiest] >= 6 and scores[cleanest] <= 2:
+        rec_level = 'strong'
+        n_crit = len([f for f in fscores[riskiest]['flags'] if f[0]=='critical'])
+        rec = (f'強烈建議優先選擇 {cleanest}。{riskiest} 有 {n_crit} 項嚴重財務警示，'
+               f'入職風險偏高。若 {riskiest} 是唯一選項，建議入職前要求查看最近一期季報，'
+               f'並在 offer 談判時要求加入薪資保護條款（如試用期結束後才有期權）。')
+    elif scores[riskiest] >= 3:
+        rec_level = 'moderate'
+        rec = (f'{cleanest} 財務面優於 {riskiest}。若同時有兩間 offer，'
+               f'財務安全性角度建議 {cleanest}，但差距不到需要完全排除 {riskiest} 的程度。'
+               f'面試 {riskiest} 時建議詢問：最近一年現金流狀況、是否有計劃融資或增資。')
+    else:
+        rec_level = 'neutral'
+        rec = f'兩間公司財務面差距不大，建議著重職位內容、成長機會及薪資條件做決定。'
+
+    return {'ranked': ranked, 'scores': scores, 'verdict': verdict,
+            'recommendation': rec, 'rec_level': rec_level,
+            'comparisons': comparisons,
+            'summary': {sid: {'label': fscores[sid]['label'],
+                               'score': fscores[sid]['score'],
+                               'color': fscores[sid]['color'],
+                               'level': fscores[sid]['level']} for sid in sids}}
 
 # ─── 主要抓取流程 ──────────────────────────────────────────
 
