@@ -102,12 +102,23 @@ def _to_annual_table(records, max_years):
 # ─── 指標計算層 ────────────────────────────────────────────
 
 def _g(table, key, yr):
-    return table.get(key, {}).get(yr)
+    return table.get(key, {}).get(yr) if key else None
 
 def _find(table, *keywords):
     for key in table:
         if all(kw in key for kw in keywords):
             return key
+    return None
+
+def _pick(table, *candidates):
+    """Try exact key match first, then partial match. Supports both FinMind (English) and legacy (Chinese) names."""
+    for c in candidates:
+        if c in table:
+            return c
+    for c in candidates:
+        k = _find(table, c)
+        if k:
+            return k
     return None
 
 def safe_div(a, b, pct=True):
@@ -123,19 +134,19 @@ def calc_cagr(v_start, v_end, n):
 def calculate_metrics(is_d, bs_d, cf_d, years):
     metrics = {}
     for yr in years:
-        rev_k   = _find(is_d, '營業收入')
-        gp_k    = _find(is_d, '毛利') or _find(is_d, '營業毛利')
-        op_k    = _find(is_d, '營業利益')
-        ni_k    = _find(is_d, '稅後淨利') or _find(is_d, '本期淨利')
-        eps_k   = _find(is_d, '每股') or _find(is_d, 'EPS')
-        ca_k    = _find(bs_d, '流動資產合計') or _find(bs_d, '流動資產總額') or _find(bs_d, '流動資產總計')
-        cl_k    = _find(bs_d, '流動負債合計') or _find(bs_d, '流動負債總額') or _find(bs_d, '流動負債總計')
-        tl_k    = _find(bs_d, '負債總計') or _find(bs_d, '負債總額') or _find(bs_d, '負債合計')
-        ta_k    = _find(bs_d, '資產總計') or _find(bs_d, '資產總額') or _find(bs_d, '資產合計')
-        eq_k    = _find(bs_d, '權益總計') or _find(bs_d, '股東權益總額') or _find(bs_d, '權益總額')
-        cash_k  = _find(bs_d, '現金') or _find(bs_d, '約當現金')
-        ocf_k   = _find(cf_d, '營業活動') or _find(cf_d, '來自營運')
-        capex_k = _find(cf_d, '資本支出') or _find(cf_d, '取得不動產')
+        rev_k   = _pick(is_d, 'Revenue', '營業收入')
+        gp_k    = _pick(is_d, 'GrossProfit', '毛利', '營業毛利')
+        op_k    = _pick(is_d, 'OperatingIncome', '營業利益')
+        ni_k    = _pick(is_d, 'IncomeAfterTaxes', 'TotalConsolidatedProfitForThePeriod', '稅後淨利', '本期淨利')
+        eps_k   = _pick(is_d, 'EPS', '每股')
+        ca_k    = _pick(bs_d, 'CurrentAssets', '流動資產合計', '流動資產總額', '流動資產總計')
+        cl_k    = _pick(bs_d, 'CurrentLiabilities', '流動負債合計', '流動負債總額', '流動負債總計')
+        tl_k    = _pick(bs_d, 'Liabilities', '負債總計', '負債總額', '負債合計')
+        ta_k    = _pick(bs_d, 'TotalAssets', '資產總計', '資產總額', '資產合計')
+        eq_k    = _pick(bs_d, 'Equity', '權益總計', '股東權益總額', '權益總額')
+        cash_k  = _pick(bs_d, 'CashAndCashEquivalents', '現金', '約當現金')
+        ocf_k   = _pick(cf_d, 'CashFlowsFromOperatingActivities', 'NetCashInflowFromOperatingActivities', '營業活動', '來自營運')
+        capex_k = _pick(cf_d, 'PropertyAndPlantAndEquipment', '資本支出', '取得不動產')
 
         rev   = _g(is_d, rev_k,   yr)
         gp    = _g(is_d, gp_k,    yr)
@@ -368,7 +379,7 @@ def calc_forensic_score(stock_data):
 
     # ── 4. 應收帳款異常（Channel Stuffing）────────────────
     # AR 成長速度遠超營收 → 可能塞貨給通路（月底衝業績）或虛開發票認列收入
-    ar_k = _find(bs_d, '應收帳款') or _find(bs_d, '應收票據及應收帳款') or _find(bs_d, '應收')
+    ar_k = _pick(bs_d, 'AccountsReceivableNet', '應收帳款', '應收票據及應收帳款', '應收')
     if ar_k:
         ar_vals = [(yr, bs_d[ar_k].get(yr)) for yr in years if bs_d[ar_k].get(yr)]
         if len(ar_vals) >= 2 and len(rev_vals) >= 2:
@@ -588,7 +599,7 @@ def fetch_stock(stock_id, max_years=5, use_cache=True):
             conn.execute("INSERT OR REPLACE INTO stock_cache VALUES (?,?,?,?)",
                          (stock_id, key, today, json.dumps(records)))
             conn.commit()
-            print("✓")
+            print("OK")
 
         tbl, yrs = _to_annual_table(records, max_years)
         tables[key] = tbl
